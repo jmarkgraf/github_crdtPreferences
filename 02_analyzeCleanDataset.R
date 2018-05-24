@@ -9,6 +9,7 @@
 rm(list = ls())
 
 # load libraries
+library(mvtnorm)
 library(car)
 library(gtools)
 library(foreign)  # to import dta file
@@ -116,11 +117,79 @@ complete.ess$offshwalt.fac <- as.ordered (cut(complete.ess$offshwalt, c(-5,20,40
 levels (complete.ess$offshwalt.fac) <- c("1","2","3","4","5")
 complete.ess$offshwalt.fac.num <- as.numeric (complete.ess$offshwalt.fac)
 
+complete.ess <- complete.ess[complete.ess$wrongincome != 1,]
+
+
+#####################################
+#### Analysis by income category ####
+#####################################
+
+# T&R then use their relative measure of income and compare low income (50 percentile - sd)
+quantile(complete.ess$perceqnatincdollar, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm =T) # p50 = 0.83
+sd(complete.ess$perceqnatincdollar, na.rm =T) # sd = 0.74
+
+# high income: perceqnatincdollar = 1.57; low income: perceqnatincdollar = 0.09
+complete.ess$incomeTER.TR <- ifelse(complete.ess$perceqnatincdollar > 1.57, "High"
+                                    , ifelse(complete.ess$perceqnatincdollar < 0.09, "Low", "Middle"))
+
+
+# generate quintile groups for income by cntr.yr pair
+complete.ess$incomeQNT.TR <- ntile(complete.ess$perceqnatincdollar, 5)
+complete.ess$incomeQNT.TR <- relevel(as.factor(complete.ess$incomeQNT.TR), ref = 3)
+complete.ess$incomeLOG <- log(complete.ess$perceqnatincdollar)
+
+fit.incomeTR <- lmer(gincdif2 ~ brwmny*incomeLOG
+                     + male + agea + unemplindiv 
+                     + eduyrs2 + mbtru2 + rlgdgr 
+                     + socgdp + gdpc
+                     + (1 | cntry.yr),
+                     weights = dweight, data=complete.ess)
+summary(fit.incomeTR)
+interplot(fit.incomeTR, "brwmny", "incomeLOG")
+
+# generate quintile groups for income by cntr.yr pair
+complete.ess <- ddply(complete.ess, .(cntry.yr), mutate, incomeQNT = ntile(income, 5))
+complete.ess$incomeQNT <- relevel(as.factor(complete.ess$incomeQNT), ref = 3)
+
+# generate tertile groups for income by cntry.yr pair
+complete.ess <- ddply(complete.ess, .(cntry.yr), mutate, incomeTER = ntile(income, 3))
+complete.ess$incomeTER <- relevel(as.factor(complete.ess$incomeTER), ref = 2)
+
+
+fit.income <- lmer(gincdif2 ~ brwmny*incomeQNT
+                   + male + agea + unemplindiv 
+                   + eduyrs2 + mbtru2 + rlgdgr 
+                   + socgdp + gdpc
+                   + (1 | cntry.yr),
+                   weights = dweight, data=complete.ess)
+summary(fit.income)
+
+## DO NOT RUN: TAKES FOREVER, NO RESULT AFTER 30MIN ##
+# fit.incomeQNT <- lmer(gincdif2 ~ brwmny*incomeQNT
+#   + male + agea + unemplindiv 
+#   + eduyrs2 + mbtru2 + rlgdgr 
+#   + socgdp + gdpc
+#   + (1 + brwmny*incomeQNT | cntry.yr),
+#   weights = dweight, data=complete.ess)
+# summary(fit.incomeQNT)
+
+fit.incomeTER <- lmer(gincdif2 ~ as.factor(brwmny)*incomeTER
+                      + male + agea + unemplindiv 
+                      + eduyrs2 + mbtru2 + rlgdgr 
+                      + socgdp + gdpc
+                      + (1 + as.factor(brwmny)*incomeTER | cntry.yr),
+                      weights = dweight, data=complete.ess)
+summary(fit.incomeTER)
+#  nothing in there.
+
+# estimate p.value
+coefs <- data.frame(coef(summary(fit.income)))
+coefs$p.value <- 2* (1-pnorm(abs(coefs$t.value)))
+coefs
 
 #### FACTOR ANALYSIS ####
 # Reduce dataset even further, to exclude observations with "wrong income"
 # The main risk measure that we use is a factor that excludes OUR
-complete.ess <- complete.ess[complete.ess$wrongincome != 1,]
 AllFactor <- factanal (~rti2+relskillspec+offsh+Oeschroutine+offshwalt.fac.num 
                        , factors=1
                        , rotation="varimax"
@@ -154,19 +223,20 @@ bartlett.scores   <- std.predictors %*% t(solve (t(Lambda) %*% Phi %*% Lambda) %
 num.Missing <- apply (std.predictors, 1, function (x) sum (is.na(x)))
 allMissing <- ifelse (num.Missing==5, 1, 0)
 
+# Multiple imputation of observations that have at least one (1) "risk" measure
 mi.predictors <- mice (predictors[allMissing==0,], m=1
                        , method=c("pmm","pmm","pmm","logreg","polr"))
+mi.predictors <- complete (mi.predictors)
+rownames (mi.predictors) <- rownames(std.predictors)[allMissing==0]
 
+# Keep only observations for which there is at least one (1) "risk" measure
+tmp <- complete.ess[allMissing==0,]
 
+# Standardize multiply-imputed predictors (to construct factanal scores)
+std.mi.predictors <- apply (mi.predictors, 2, function(x) (x-mean(x, na.rm=T))/sd(x, na.rm=T))
 
-patched.std.predictors <- apply (std.predictors, c(1,2), function (x) ifelse (is.na(x), 0, x))
-patched.std.predictors.valid <- matrix (NA, ncol=ncol(patched.std.predictors), nrow=nrow(patched.std.predictors))
-for (i in 1:nrow(patched.std.predictors)){
-   patched.std.predictors.valid[i,] <- ifelse (allMissing[i]==1, rep(NA, ncol(patched.std.predictors)), patched.std.predictors[i,])   
-}
-
-thompson.scores.all <- patched.std.predictors.valid %*% solve (corrMatrix) %*% Lambda  
-
+# Create Thompson scores (same as factanal "regression" option)
+thompson.scores.all <- std.mi.predictors %*% solve (corrMatrix) %*% Lambda  
 tmp$risk <- thompson.scores.all
 
 ########################################
@@ -194,48 +264,48 @@ tmp$risk <- thompson.scores.all
 # 
 # source ("BayesGRMmodel.R")
 # Matrix with responses to risk items
-Y <- as.matrix (cbind(tmp$rti2, tmp$relskillspec, tmp$offsh, tmp$Oeschroutine, as.numeric(tmp$offshwalt.fac)))
-complete.missing <- apply (Y, 1, invalid)
-
-Y <- Y[complete.missing==FALSE,]
-Y[,1:3] <- apply (Y[,1:3], 2, function (x) (x-mean(x,na.rm=T))/sd(x,na.rm=T))
-N <- nrow(Y)   # Number of observations
-J <- ncol(Y)   # Number of risk items
-L <- 3 # number of continuous variables
-intercept <- rep(1,N)
-
-source ("~/Dropbox/CreditPreferences/Code/mixFactAnal.R")
-
-# Priors
-jags.parameters <- c("lambda","deviance","factor.score","kappa","sigma","alpha")
-Data=list(Y=Y, J=J, N=N, L=L
-          , intercept=intercept)
-jags.data <- dump.format(Data) #
-jags.inits <- function()
-{
-   dump.format(
-      list(
-         lambda=runif(5,0,2)
-         , alpha=rnorm(4)  # To coincide with negative priors
-         , kappa.unsorted=rnorm(3)
-         #, beta=rnorm(1,0,2)
-      ) )
-}
-
-# Run model (so far, failure to define node lambda)
-jags.model <- run.jags( model=mixFactAnal
-                        , monitor=jags.parameters
-                        , inits=jags.inits()#list(jags.inits(), jags.inits())
-                        , n.chains=1
-                        , method="parallel"
-                        , data=jags.data
-                        , adapt=1#000
-                        , thin=2#0
-                        , burnin=20#000
-                        , sample=50#0
-                        #, thin=1, burnin=10, sample=50
-                        , summarise=FALSE
-                        , plots=FALSE )
+# Y <- as.matrix (cbind(tmp$rti2, tmp$relskillspec, tmp$offsh, tmp$Oeschroutine, as.numeric(tmp$offshwalt.fac)))
+# complete.missing <- apply (Y, 1, invalid)
+# 
+# Y <- Y[complete.missing==FALSE,]
+# Y[,1:3] <- apply (Y[,1:3], 2, function (x) (x-mean(x,na.rm=T))/sd(x,na.rm=T))
+# N <- nrow(Y)   # Number of observations
+# J <- ncol(Y)   # Number of risk items
+# L <- 3 # number of continuous variables
+# intercept <- rep(1,N)
+# 
+# source ("~/Dropbox/CreditPreferences/Code/mixFactAnal.R")
+# 
+# # Priors
+# jags.parameters <- c("lambda","deviance","factor.score","kappa","sigma","alpha")
+# Data=list(Y=Y, J=J, N=N, L=L
+#           , intercept=intercept)
+# jags.data <- dump.format(Data) #
+# jags.inits <- function()
+# {
+#    dump.format(
+#       list(
+#          lambda=runif(5,0,2)
+#          , alpha=rnorm(4)  # To coincide with negative priors
+#          , kappa.unsorted=rnorm(3)
+#          #, beta=rnorm(1,0,2)
+#       ) )
+# }
+# 
+# # Run model (so far, failure to define node lambda)
+# jags.model <- run.jags( model=mixFactAnal
+#                         , monitor=jags.parameters
+#                         , inits=jags.inits()#list(jags.inits(), jags.inits())
+#                         , n.chains=1
+#                         , method="parallel"
+#                         , data=jags.data
+#                         , adapt=1#000
+#                         , thin=2#0
+#                         , burnin=20#000
+#                         , sample=50#0
+#                         #, thin=1, burnin=10, sample=50
+#                         , summarise=FALSE
+#                         , plots=FALSE )
 ###########################################################################
 
 
@@ -247,88 +317,117 @@ fit.baseline <- lmer(gincdif2 ~ brwmny
   weights = dweight, data=complete.ess)
 summary(fit.baseline)
 
+# Some variables need to be rescaled
+include.vars <- c("gincdif2bin","brwmny","male","agea","unemplindiv"
+                  ,"eduyrs2","mbtru2","rlgdgr","socgdp","gdpc")
+summary (tmp[,include.vars])
 
+# The following function can be included inside lmer to rescale
+rescale.var <- function (x) {
+   res.x <- (x -mean(x, na.rm=T))/sd(x, na.rm=T)
+   return (res.x)}
 
 fit.risk <- lmer(gincdif2 ~ brwmny*risk
-                     + log(income) + male + agea + unemplindiv 
-                     + eduyrs2 + mbtru2 + rlgdgr 
-                     + socgdp + log(gdpc)
-                     + (1 + brwmny*risk | cntry.yr),
+                     + log(income) + male + rescale.var(agea)
+                     + unemplindiv 
+                     + rescale.var(eduyrs2) + mbtru2 
+                     + rescale.var(rlgdgr) 
+                     + rescale.var(socgdp) + log(gdpc)
+                     + (1 | cntry.yr),
                      weights = dweight, data=tmp)
 summary(fit.risk)
 
 interplot (fit.risk, "brwmny", "risk")
 
 
+fit.risk.rich <- lmer(gincdif2 ~ brwmny*risk
+                 + male + agea + unemplindiv 
+                 + eduyrs2 + mbtru2 + rlgdgr 
+                 + socgdp + log(gdpc)
+                 + (1 | cntry.yr),
+                 weights = dweight, data=tmp, subset=incomeQNT.TR==4 | incomeQNT.TR==5)
+summary(fit.risk.rich)
+
+
+fit.risk.poor <- lmer(gincdif2 ~ brwmny*risk
+                      + male + agea + unemplindiv 
+                      + eduyrs2 + mbtru2 + rlgdgr 
+                      + socgdp + log(gdpc)
+                      + (1 | cntry.yr),
+                      weights = dweight, data=tmp, subset=incomeQNT.TR==1 | incomeQNT.TR==2)
+summary(fit.risk.poor)
+
+
+# Dichotomous risk variable
+tmp$dich.risk <- as.factor (ifelse (tmp$risk<0, 0, 1))
+
+with (tmp, table(brwmny, incomeQNT.TR, dich.risk))
+
+fit.risk.full <- lmer(gincdif2 ~ brwmny*dich.risk*incomeQNT.TR
+                 + male + agea + unemplindiv 
+                 + eduyrs2 + mbtru2 + rlgdgr 
+                 + socgdp + log(gdpc)
+                 + (1 | cntry.yr),
+                 weights = dweight, data=tmp)
+summary(fit.risk.full)
+
+
+sims <- rmvnorm (100, mean=fixef(fit.risk.full), sigma=as.matrix(vcov(fit.risk.full)))
+
+x.male <- max (tmp$male, na.rm=T)
+x.agea <- median (tmp$agea, na.rm=T)
+x.unemplindiv <- max (tmp$unemplindiv, na.rm=T)
+x.eduyrs2 <- median (tmp$eduyrs2)
+x.mbtru2  <- max (tmp$mbtru2, na.rm=T)
+x.rlgdgr  <- median (tmp$rlgdgr, na.rm=T)
+x.socgdp  <- mean (tmp$socgdp, na.rm=T)
+x.loggdp  <- mean (log(tmp$gdpc))
+constant <- c(x.male, x.agea, x.unemplindiv, x.eduyrs2, x.mbtru2
+              , x.rlgdgr, x.socgdp, x.loggdp)
+
+brwmny <- c(1,5)
+risk   <- c(0,1)
+income.1 <- c(1,0,0,0,0)
+income.2 <- c(0,1,0,0,0)
+income.4 <- c(0,0,0,1,0)
+income.5 <- c(0,0,0,0,1)
+
+hat.y <- array (NA, dim=c(2,2,5))
+for (i in 1:2){
+   for (j in 1:2){
+      for (k in 1:5){
+         obs.values <- c(1, brwmny[i], risk[j], income.1[k], income.2[k]
+                         , income.4[k], income.5[k]
+                         , constant
+                         , brwmny[i]*risk[j], brwmny[i]*income.1[k]
+                         , brwmny[i]*income.2[k], brwmny[i]*income.4[k]
+                         , brwmny[i]*income.5[k], risk[j]*income.1[k]
+                         , risk[j]*income.2[k], risk[j]*income.4[k]
+                         , risk[j]*income.5[k], brwmny[i]*risk[j]*income.1[k]
+                         , brwmny[i]*risk[j]*income.2[k]
+                         , brwmny[i]*risk[j]*income.4[k]
+                         , brwmny[i]*risk[j]*income.5[k])
+         hat.y[i,j,k] <-  mean (sims %*% obs.values)
+      }
+   }
+}
+
+# With dichotomous "support for welfare state" outcome variable
+fit.risk.dich <- glmer(gincdif2bin ~ brwmny*dich.risk*incomeQNT.TR
+                      + male + agea + unemplindiv 
+                      + eduyrs2 + mbtru2 + rlgdgr 
+                      + socgdp + log(gdpc)
+                      + (1 | cntry.yr)
+                      , family=binomial
+                      , weights = dweight, data=tmp)
+summary(fit.risk.dich)
+# Model does not converge after a long while
+
 ###########################################################################
 ###########################################################################
 
 # INCOME ANALYSIS: redistribution story, micro-level step
 
-##### Thewissen & Rueda
-
-# T&R then use their relative measure of income and compare low income (50 percentile - sd)
-quantile(complete.ess$perceqnatincdollar, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm =T) # p50 = 0.83
-sd(complete.ess$perceqnatincdollar, na.rm =T) # sd = 0.74
-
-# high income: perceqnatincdollar = 1.57; low income: perceqnatincdollar = 0.09
-complete.ess$incomeTER.TR <- ifelse(complete.ess$perceqnatincdollar > 1.57, "High"
-  , ifelse(complete.ess$perceqnatincdollar < 0.09, "Low", "Middle"))
-
-
-# generate quintile groups for income by cntr.yr pair
-complete.ess$incomeQNT.TR <- ntile(complete.ess$perceqnatincdollar, 5)
-complete.ess$incomeQNT.TR <- relevel(as.factor(complete.ess$incomeQNT.TR), ref = 3)
-complete.ess$incomeLOG <- log(complete.ess$perceqnatincdollar)
-
-fit.incomeTR <- lmer(gincdif2 ~ brwmny*incomeLOG
-  + male + agea + unemplindiv 
-  + eduyrs2 + mbtru2 + rlgdgr 
-  + socgdp + gdpc
-  + (1 | cntry.yr),
-  weights = dweight, data=complete.ess)
-summary(fit.incomeTR)
-interplot(fit.incomeTR, "brwmny", "incomeLOG")
-
-# generate quintile groups for income by cntr.yr pair
-complete.ess <- ddply(complete.ess, .(cntry.yr), mutate, incomeQNT = ntile(income, 5))
-complete.ess$incomeQNT <- relevel(as.factor(complete.ess$incomeQNT), ref = 3)
-
-# generate tertile groups for income by cntry.yr pair
-complete.ess <- ddply(complete.ess, .(cntry.yr), mutate, incomeTER = ntile(income, 3))
-complete.ess$incomeTER <- relevel(as.factor(complete.ess$incomeTER), ref = 2)
-
-
-fit.income <- lmer(gincdif2 ~ brwmny*incomeQNT
-  + male + agea + unemplindiv 
-  + eduyrs2 + mbtru2 + rlgdgr 
-  + socgdp + gdpc
-  + (1 | cntry.yr),
-  weights = dweight, data=complete.ess)
-summary(fit.income)
-
-## DO NOT RUN: TAKES FOREVER, NO RESULT AFTER 30MIN ##
-# fit.incomeQNT <- lmer(gincdif2 ~ brwmny*incomeQNT
-#   + male + agea + unemplindiv 
-#   + eduyrs2 + mbtru2 + rlgdgr 
-#   + socgdp + gdpc
-#   + (1 + brwmny*incomeQNT | cntry.yr),
-#   weights = dweight, data=complete.ess)
-summary(fit.incomeQNT)
-
-fit.incomeTER <- lmer(gincdif2 ~ as.factor(brwmny)*incomeTER
-  + male + agea + unemplindiv 
-  + eduyrs2 + mbtru2 + rlgdgr 
-  + socgdp + gdpc
-  + (1 + as.factor(brwmny)*incomeTER | cntry.yr),
-  weights = dweight, data=complete.ess)
-summary(fit.incomeTER)
-#  nothing in there.
-
-# estimate p.value
-coefs <- data.frame(coef(summary(fit.income)))
-coefs$p.value <- 2* (1-pnorm(abs(coefs$t.value)))
-coefs
 
 
 
