@@ -33,8 +33,8 @@ library (MCMCpack)  # canned MCMC procedures
 library (mcmcplots) # plot MC
 library (parallel)
 library (readstata13)
-library(interplot)  # to plot interaction effects
-
+library (interplot)  # to plot interaction effects
+library (mice)
 
 # set wd
 possibles <- c("~/Dropbox/CreditPreferences/")
@@ -120,13 +120,13 @@ complete.ess$offshwalt.fac.num <- as.numeric (complete.ess$offshwalt.fac)
 #### FACTOR ANALYSIS ####
 # Reduce dataset even further, to exclude observations with "wrong income"
 # The main risk measure that we use is a factor that excludes OUR
-tmp <- complete.ess[complete.ess$wrongincome != 1,]
+complete.ess <- complete.ess[complete.ess$wrongincome != 1,]
 AllFactor <- factanal (~rti2+relskillspec+offsh+Oeschroutine+offshwalt.fac.num 
                        , factors=1
                        , rotation="varimax"
                        , scores="regression"
                        , na.action=na.exclude
-                       , data=tmp)
+                       , data=complete.ess)
 
 
 AllFactor$loadings
@@ -137,7 +137,7 @@ factor.scores <- AllFactor$scores
 Lambda <- AllFactor$loadings
 Phi    <- diag(AllFactor$uniquenesses)
 Sigma <- Lambda %*% t(Lambda) + Phi
-predictors <- tmp[,c("rti2","relskillspec","offsh","Oeschroutine","offshwalt.fac.num")]
+predictors <- complete.ess[,c("rti2","relskillspec","offsh","Oeschroutine","offshwalt.fac.num")]
 std.predictors <- apply (predictors, 2, function(x) (x-mean(x, na.rm=T))/sd(x, na.rm=T))
 corrMatrix <- AllFactor$correlation # similar to cor (predictors, use="p")
 
@@ -153,6 +153,12 @@ bartlett.scores   <- std.predictors %*% t(solve (t(Lambda) %*% Phi %*% Lambda) %
 # and units with some observed predictors
 num.Missing <- apply (std.predictors, 1, function (x) sum (is.na(x)))
 allMissing <- ifelse (num.Missing==5, 1, 0)
+
+mi.predictors <- mice (predictors[allMissing==0,], m=1
+                       , method=c("pmm","pmm","pmm","logreg","polr"))
+
+
+
 patched.std.predictors <- apply (std.predictors, c(1,2), function (x) ifelse (is.na(x), 0, x))
 patched.std.predictors.valid <- matrix (NA, ncol=ncol(patched.std.predictors), nrow=nrow(patched.std.predictors))
 for (i in 1:nrow(patched.std.predictors)){
