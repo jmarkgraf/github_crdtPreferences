@@ -253,6 +253,72 @@ summary(fit.risk)
 
 interplot (fit.risk, "brwmny", "risk")
 
+
+###########################################################################
+###########################################################################
+
+# INCOME ANALYSIS: redistribution story, micro-level step
+
+##### Thewissen & Rueda
+
+# T&R then use their relative measure of income and compare low income (50 percentile - sd)
+quantile(complete.ess$perceqnatincdollar, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm =T) # p50 = 0.94
+sd(complete.ess$perceqnatincdollar, na.rm =T) # sd = 0.74
+
+# high income: perceqnatincdollar = 1.57; low income: perceqnatincdollar = 0.09
+complete.ess$incomeTER.TR <- ifelse(complete.ess$perceqnatincdollar > 1.57, "High"
+  , ifelse(complete.ess$perceqnatincdollar < 0.09, "Low", "Middle"))
+
+fit.incomeTR <- lmer(gincdif2 ~ brwmny*incomeTER.TR
+  + male + agea + unemplindiv 
+  + eduyrs2 + mbtru2 + rlgdgr 
+  + socgdp + gdpc
+  + (1 + brwmny*incomeTER.TR | cntry.yr),
+  weights = dweight, data=complete.ess)
+summar(fit.incomeTR)
+
+# generate quintile groups for income by cntr.yr pair
+complete.ess <- ddply(complete.ess, .(cntry.yr), mutate, incomeQNT = ntile(income, 5))
+complete.ess$incomeQNT <- relevel(as.factor(complete.ess$incomeQNT), ref = 3)
+
+# generate tertile groups for income by cntry.yr pair
+complete.ess <- ddply(complete.ess, .(cntry.yr), mutate, incomeTER = ntile(income, 3))
+complete.ess$incomeTER <- relevel(as.factor(complete.ess$incomeTER), ref = 2)
+
+
+fit.income <- lmer(gincdif2 ~ brwmny*log(income)
+  + male + agea + unemplindiv 
+  + eduyrs2 + mbtru2 + rlgdgr 
+  + socgdp + gdpc
+  + (1 + brwmny*log(income) | cntry.yr),
+  weights = dweight, data=complete.ess)
+summary(fit.income)
+
+## DO NOT RUN: TAKES FOREVER, NO RESULT AFTER 30MIN ##
+# fit.incomeQNT <- lmer(gincdif2 ~ brwmny*incomeQNT
+#   + male + agea + unemplindiv 
+#   + eduyrs2 + mbtru2 + rlgdgr 
+#   + socgdp + gdpc
+#   + (1 + brwmny*incomeQNT | cntry.yr),
+#   weights = dweight, data=complete.ess)
+summary(fit.incomeQNT)
+
+fit.incomeTER <- lmer(gincdif2 ~ as.factor(brwmny)*incomeTER
+  + male + agea + unemplindiv 
+  + eduyrs2 + mbtru2 + rlgdgr 
+  + socgdp + gdpc
+  + (1 + as.factor(brwmny)*incomeTER | cntry.yr),
+  weights = dweight, data=complete.ess)
+summary(fit.incomeTER)
+#  nothing in there.
+
+# estimate p.value
+coefs <- data.frame(coef(summary(fit.income)))
+coefs$p.value <- 2* (1-pnorm(abs(coefs$t.value)))
+coefs
+
+
+
 ###########################################################################
 ###########################################################################
 # Comment these lines out if need to run model on full sample
