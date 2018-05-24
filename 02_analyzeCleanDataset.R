@@ -262,20 +262,27 @@ interplot (fit.risk, "brwmny", "risk")
 ##### Thewissen & Rueda
 
 # T&R then use their relative measure of income and compare low income (50 percentile - sd)
-quantile(complete.ess$perceqnatincdollar, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm =T) # p50 = 0.94
+quantile(complete.ess$perceqnatincdollar, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm =T) # p50 = 0.83
 sd(complete.ess$perceqnatincdollar, na.rm =T) # sd = 0.74
 
 # high income: perceqnatincdollar = 1.57; low income: perceqnatincdollar = 0.09
 complete.ess$incomeTER.TR <- ifelse(complete.ess$perceqnatincdollar > 1.57, "High"
   , ifelse(complete.ess$perceqnatincdollar < 0.09, "Low", "Middle"))
 
-fit.incomeTR <- lmer(gincdif2 ~ brwmny*incomeTER.TR
+
+# generate quintile groups for income by cntr.yr pair
+complete.ess$incomeQNT.TR <- ntile(complete.ess$perceqnatincdollar, 5)
+complete.ess$incomeQNT.TR <- relevel(as.factor(complete.ess$incomeQNT.TR), ref = 3)
+complete.ess$incomeLOG <- log(complete.ess$perceqnatincdollar)
+
+fit.incomeTR <- lmer(gincdif2 ~ brwmny*incomeLOG
   + male + agea + unemplindiv 
   + eduyrs2 + mbtru2 + rlgdgr 
   + socgdp + gdpc
-  + (1 + brwmny*incomeTER.TR | cntry.yr),
+  + (1 | cntry.yr),
   weights = dweight, data=complete.ess)
-summar(fit.incomeTR)
+summary(fit.incomeTR)
+interplot(fit.incomeTR, "brwmny", "incomeLOG")
 
 # generate quintile groups for income by cntr.yr pair
 complete.ess <- ddply(complete.ess, .(cntry.yr), mutate, incomeQNT = ntile(income, 5))
@@ -286,11 +293,11 @@ complete.ess <- ddply(complete.ess, .(cntry.yr), mutate, incomeTER = ntile(incom
 complete.ess$incomeTER <- relevel(as.factor(complete.ess$incomeTER), ref = 2)
 
 
-fit.income <- lmer(gincdif2 ~ brwmny*log(income)
+fit.income <- lmer(gincdif2 ~ brwmny*incomeQNT
   + male + agea + unemplindiv 
   + eduyrs2 + mbtru2 + rlgdgr 
   + socgdp + gdpc
-  + (1 + brwmny*log(income) | cntry.yr),
+  + (1 | cntry.yr),
   weights = dweight, data=complete.ess)
 summary(fit.income)
 
