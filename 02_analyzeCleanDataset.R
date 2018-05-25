@@ -320,10 +320,10 @@ fit.income <- lmer(gincdif2 ~ brwmny + log.income
                    + male + agea + unemplindiv 
                    + eduyrs2 + mbtru2 + rlgdgr 
                    + socgdp + log.gdpc
-                   + (1 + brwmny + log.income
-                      + brwmny:log.income | cntry.yr),
+                   + (1 + brwmny | cntry.yr),
                    weights = dweight, data=tmp)
 summary(fit.income)
+interplot (fit.income, "brwmny", "log.income")
 
 # Interaction with Thewissen-Rueda tertiles
 fit.incomeTR <- lmer(gincdif2 ~ brwmny + incomeTER.TR
@@ -331,8 +331,7 @@ fit.incomeTR <- lmer(gincdif2 ~ brwmny + incomeTER.TR
                      + male + agea + unemplindiv 
                      + eduyrs2 + mbtru2 + rlgdgr 
                      + socgdp + log.gdpc
-                     + (1 + brwmny + incomeTER.TR
-                        + brwmny:incomeTER.TR | cntry.yr),
+                     + (1 + brwmny  | cntry.yr),
                      weights = dweight, data=tmp)
 summary(fit.incomeTR)
 
@@ -343,9 +342,9 @@ fit.incomeQNT <- lmer(gincdif2 ~ brwmny + incomeQNT
                       + male + agea + unemplindiv 
                       + eduyrs2 + mbtru2 + rlgdgr 
                       + socgdp + log.gdpc
-                      + (1 + brwmny + incomeQNT
-                         + brwmny:incomeQNT | cntry.yr),
+                      + (1 + brwmny | cntry.yr),
                       weights = dweight, data=tmp)
+summary(fit.incomeQNT)
 
 # # estimate p.value
 # coefs <- data.frame(coef(summary(fit.income)))
@@ -359,7 +358,7 @@ fit.risk <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
                      + unemplindiv 
                      + eduyrs2 + mbtru2 
                      + rlgdgr + socgdp + log.gdpc
-                     + (1 + brwmny + risk + brwmny:risk | cntry.yr),
+                     + (1 + brwmny  | cntry.yr),
                      weights = dweight, data=tmp)
 summary(fit.risk)
 interplot (fit.risk, "brwmny", "risk")
@@ -369,7 +368,7 @@ fit.risk.rich <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
                  + male + agea + unemplindiv 
                  + eduyrs2 + mbtru2 + rlgdgr 
                  + socgdp + log.gdpc
-                 + (1 + brwmny + risk + brwmny:risk | cntry.yr),
+                 + (1 + brwmny | cntry.yr),
                  weights = dweight, data=tmp, subset=incomeQNT==4 | incomeQNT==5)
 summary(fit.risk.rich)
 
@@ -378,7 +377,7 @@ fit.risk.poor <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
                       + male + agea + unemplindiv 
                       + eduyrs2 + mbtru2 + rlgdgr 
                       + socgdp + log(gdpc)
-                      + (1 + brwmny + risk + brwmny:risk | cntry.yr),
+                      + (1 + brwmny  | cntry.yr),
                       weights = dweight, data=tmp, subset=incomeQNT==1 | incomeQNT==2)
 summary(fit.risk.poor)
 
