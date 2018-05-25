@@ -364,23 +364,26 @@ tmp$dich.risk <- as.factor (ifelse (tmp$risk<0, 0, 1))
 with (tmp, table(brwmny, incomeQNT.TR, dich.risk))
 
 fit.risk.full <- lmer(gincdif2 ~ brwmny*dich.risk*incomeQNT.TR
-                 + male + agea + unemplindiv 
-                 + eduyrs2 + mbtru2 + rlgdgr 
-                 + socgdp + log(gdpc)
-                 + (1 | cntry.yr),
+                      + male + rescale.var(agea)
+                      + unemplindiv 
+                      + rescale.var(eduyrs2) + mbtru2 
+                      + rescale.var(rlgdgr) 
+                      + rescale.var(socgdp) + log(gdpc)
+                      + (1 | cntry.yr),
                  weights = dweight, data=tmp)
 summary(fit.risk.full)
 
 
-sims <- rmvnorm (100, mean=fixef(fit.risk.full), sigma=as.matrix(vcov(fit.risk.full)))
+sims <- rmvnorm (100, mean=fixef(fit.risk.full)
+                 , sigma=as.matrix(vcov(fit.risk.full)))
 
 x.male <- max (tmp$male, na.rm=T)
-x.agea <- median (tmp$agea, na.rm=T)
+x.agea <- median (rescale.var(tmp$agea), na.rm=T)
 x.unemplindiv <- max (tmp$unemplindiv, na.rm=T)
-x.eduyrs2 <- median (tmp$eduyrs2)
+x.eduyrs2 <- median (rescale.var(tmp$eduyrs2))
 x.mbtru2  <- max (tmp$mbtru2, na.rm=T)
-x.rlgdgr  <- median (tmp$rlgdgr, na.rm=T)
-x.socgdp  <- mean (tmp$socgdp, na.rm=T)
+x.rlgdgr  <- median (rescale.var(tmp$rlgdgr), na.rm=T)
+x.socgdp  <- mean (rescale.var(tmp$socgdp), na.rm=T)
 x.loggdp  <- mean (log(tmp$gdpc))
 constant <- c(x.male, x.agea, x.unemplindiv, x.eduyrs2, x.mbtru2
               , x.rlgdgr, x.socgdp, x.loggdp)
@@ -411,6 +414,7 @@ for (i in 1:2){
       }
    }
 }
+round (hat.y,2)
 
 # With dichotomous "support for welfare state" outcome variable
 fit.risk.dich <- glmer(gincdif2bin ~ brwmny*dich.risk*incomeQNT.TR
