@@ -436,6 +436,46 @@ for (i in 1:2){
 }
 round (hat.y,2)
 
+###########################################################################
+# RUN REGRESSIONS BY "CNTRY.YR" and STORE ESTIMATES
+
+# generate variable indicating missing income information
+tmp <- tmp %>%
+  group_by(cntry.yr) %>%
+  mutate(n_unique = n_distinct(incomeQNT))
+tmp$incomeNA <- ifelse(tmp$n_unique > 2, 0,1)
+
+# with "incomeQNT"
+incomeQNT_results <- dlply(tmp[tmp$incomeNA == 0,], "cntry.yr", function(df)
+  lm(gincdif2 ~ brwmny + incomeQNT + brwmny : incomeQNT
+    + male + agea + unemplindiv 
+    + eduyrs2 + mbtru2 + rlgdgr 
+    + socgdp + log.gdpc, data = df) 
+)
+
+# with "incomeTER"
+incomeTER_results <- dlply(tmp[tmp$incomeNA == 0,], "cntry.yr", function(df)
+  lm(gincdif2 ~ brwmny + incomeTER + brwmny : incomeTER
+    + male + agea + unemplindiv 
+    + eduyrs2 + mbtru2 + rlgdgr 
+    + socgdp + log.gdpc, data = df) 
+)
+
+# with "log.income"
+incomeLog_results <- dlply(tmp[tmp$incomeNA == 0,], "cntry.yr", function(df)
+  lm(gincdif2 ~ brwmny + log.income
+  + brwmny:log.income
+  + male + agea + unemplindiv 
+  + eduyrs2 + mbtru2 + rlgdgr 
+  + socgdp + log.gdpc, data = df)
+  )
+
+# collect all results in single dataframe
+
+incomeQNT <- lapply(incomeQNT_results, function(x) coef(summary(x))[13:16,1:2])
+incomeLog <- lapply(incomeLog_results, function(x) coef(summary(x))[10,1:2])
+incomeTER <- lapply(incomeTER_results, function(x) coef(summary(x))[11:12,1:2])
+
 # # With dichotomous "support for welfare state" outcome variable
 # fit.risk.dich <- glmer(gincdif2bin ~ brwmny*dich.risk*incomeQNT.TR
 #                       + male + agea + unemplindiv 
