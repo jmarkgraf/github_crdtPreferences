@@ -40,6 +40,7 @@ library (mice)
 # set wd
 possibles <- c("~/Dropbox/CreditPreferences/")
 set_valid_wd(possibles)
+graphicsPath <- c("~/Dropbox/CreditPreferences/Data/plotsGraphs/")
 
 # load dataset
 ess <- read.dta13("Data/ESSdata/finalESS_ThewissenRueda.dta",  # to be refined by each of us.
@@ -197,6 +198,11 @@ std.mi.predictors <- apply (mi.predictors, 2, function(x) (x-mean(x, na.rm=T))/s
 thompson.scores.all <- std.mi.predictors %*% solve (corrMatrix) %*% Lambda  
 complete.ess$risk <- thompson.scores.all
 
+pdf (paste0 (graphicsPath, "RiskHistogram.pdf"), h=5, w=7)
+par (mar=c(4,4,1,1))
+hist (complete.ess$risk, main="", xlab="Relative risk of losing job")
+dev.off()
+
 ########################################
 #### Bayesian mixed factor analysis #### 
 ########################################
@@ -314,6 +320,8 @@ fit.gini <- lmer(gincdif2 ~ brwmny*gininet
 summary(fit.gini)
 interplot(fit.gini, "brwmny", "gininet")
 
+
+
 # Interaction with income
 fit.income <- lmer(gincdif2 ~ brwmny + log.income
                    + brwmny:log.income
@@ -382,6 +390,12 @@ fit.risk.poor <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
 summary(fit.risk.poor)
 
 
+#### Gather models in a small numer of tables ####
+
+
+stargazer (fit.baseline, fit.gini, fit.risk)
+stargazer (fit.income, fit.incomeTR, fit.incomeQNT, fit.risk.rich, fit.risk.poor)
+
 # Dichotomous risk variable
 tmp$dich.risk <- as.factor (ifelse (tmp$risk<0, 0, 1))
 with (tmp, table(brwmny, incomeQNT, dich.risk))
@@ -436,8 +450,11 @@ for (i in 1:2){
 }
 round (hat.y,2)
 
-###########################################################################
-# RUN REGRESSIONS BY "CNTRY.YR" and STORE ESTIMATES
+
+
+###########################################################
+#### RUN REGRESSIONS BY "CNTRY.YR" and STORE ESTIMATES ####
+###########################################################
 
 # generate variable indicating missing income information
 tmp <- tmp %>%
@@ -472,9 +489,31 @@ incomeLog_results <- dlply(tmp[tmp$incomeNA == 0,], "cntry.yr", function(df)
 
 # collect all results in single dataframe
 
-incomeQNT <- lapply(incomeQNT_results, function(x) coef(summary(x))[13:16,1:2])
-incomeLog <- lapply(incomeLog_results, function(x) coef(summary(x))[10,1:2])
-incomeTER <- lapply(incomeTER_results, function(x) coef(summary(x))[11:12,1:2])
+incomeQNT <- lapply(incomeQNT_results, function(x) coef(x)[grep ("brwmny", names(coef(x)))])
+incomeLog <- lapply(incomeLog_results, function(x) coef(x)[grep ("brwmny", names(coef(x)))])
+incomeTER <- lapply(incomeTER_results, function(x) coef(x)[grep ("brwmny", names(coef(x)))])
+
+incomeQNT.vcov <- lapply(incomeQNT_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
+incomeLog.vcov <- lapply(incomeLOG_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
+incomeTER.vcov <- lapply(incomeTER_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # # With dichotomous "support for welfare state" outcome variable
 # fit.risk.dich <- glmer(gincdif2bin ~ brwmny*dich.risk*incomeQNT.TR
@@ -491,6 +530,31 @@ incomeTER <- lapply(incomeTER_results, function(x) coef(summary(x))[11:12,1:2])
 ###########################################################################
 
 # INCOME ANALYSIS: redistribution story, micro-level step
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
