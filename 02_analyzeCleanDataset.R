@@ -876,12 +876,10 @@ stargazer (fit.baseline, fit.ineqnet, fit.hiend, fit.loend, fit.bothend
 graphPath <- paste0(getwd (),"/Draft/draftMPSA/")
 
 # Plot country average support for redistribution
-redistMean <- as.data.frame(tapply(complete.ess$gincdif2, complete.ess$cou, mean, na.rm=T)
+redistMean <- as.data.frame(tapply(complete.ess$gincdif2, complete.ess$cou, mean, na.rm=T))
 
 pdf(paste0(graphPath, "redistByCntry.pdf"), h=5, w=11)
-
 barplot(redistMean[,1], cex.names = .7, ylim = c(0,5), space = c(1,1))
-
 dev.off()
 
 
