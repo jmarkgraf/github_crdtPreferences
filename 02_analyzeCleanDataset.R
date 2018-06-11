@@ -875,6 +875,16 @@ stargazer (fit.baseline, fit.ineqnet, fit.hiend, fit.loend, fit.bothend
 #### Graphs ####
 graphPath <- paste0(getwd (),"/Draft/draftMPSA/")
 
+# Plot country average support for redistribution
+redistMean <- as.data.frame(tapply(complete.ess$gincdif2, complete.ess$cou, mean, na.rm=T, digits = 2))
+
+pdf(paste0(graphPath, "redistByCntry.pdf"), h=5, w=11)
+
+barplot(redistMean[,1], cex.names = .7, ylim = c(0,5), space = c(1,1))
+
+dev.off()
+
+
 # Plot the random coefficients for brwmny, along with standard errors
 # BAsed on model fit.baseline
 ranef.brwmny <- coef(fit.baseline)$cntry.yr[,2]
