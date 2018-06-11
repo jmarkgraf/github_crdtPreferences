@@ -60,6 +60,10 @@ ess$rlgdgr <- ifelse(ess$rlgdgr > 11, NA, ess$rlgdgr)
 unique (ess$agea)
 ess$agea <- ifelse(ess$agea > 120, NA, ess$agea)
 
+# recode homeowner variable for robustness
+ess$h.owner <- ifelse(ess$hhmodwl >2, NA, ess$hhmodwl)
+ess$h.owner <- ifelse(ess$h.owner == 2, 0, 1)
+
 unique(ess$gincdif2)
 unique(ess$male)
 hist(log(ess$perceqnatincdollar))
@@ -279,7 +283,8 @@ include.vars <- c("gincdif2bin","gincdif2","brwmny","male"
                   ,"gininet","epl","unempl"
                   ,"mainsample","incomeTER.TR","incomeQNT.TR"
                   ,"incomeLOG","incomeQNT","incomeTER"
-                  ,"risk","income","cntry.yr","dweight")
+                  ,"risk","income","cntry.yr","h.owner","socialorigin"
+                  ,"essround","dweight")
 tmp <- complete.ess[,include.vars]
 tmp$log.income <- log(tmp$income)
 tmp$log.gdpc   <- log(tmp$gdpc)
@@ -450,6 +455,27 @@ for (i in 1:2){
 }
 round (hat.y,2)
 
+###########################################################
+
+# ROBUSTNESS
+
+# 1) social network effects
+fit.socialorigin <- lmer(gincdif2 ~ brwmny * socialorigin
+  + log.income + male + agea + unemplindiv 
+  + eduyrs2 + mbtru2 + rlgdgr 
+  + socgdp + log.gdpc
+  + (1 + brwmny * socialorigin | cntry.yr),
+  weights = dweight, data=tmp)
+summary(fit.socialorigin)
+
+# 1) wealth effects
+fit.wealth <- lmer(gincdif2 ~ brwmny * h.owner
+  + log.income + male + agea + unemplindiv 
+  + eduyrs2 + mbtru2 + rlgdgr 
+  + socgdp + log.gdpc
+  + (1 + brwmny * h.owner | cntry.yr),
+  weights = dweight, data=tmp, subset = essround == 2)
+summary(fit.wealth)
 
 
 ###########################################################
