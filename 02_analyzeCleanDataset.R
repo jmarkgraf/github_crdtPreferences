@@ -912,11 +912,45 @@ stargazer (fit.baseline, fit.ineqnet, fit.hiend, fit.loend, fit.bothend
 graphPath <- paste0(getwd (),"/Draft/draftMPSA/")
 
 # Plot country average support for redistribution
-redistMean <- as.data.frame(tapply(complete.ess$gincdif2, complete.ess$cou, mean, na.rm=T))
+tmp$cou <- substr(tmp$cntry.yr, start=1,stop=3)
+redist.cntry <- prop.table(table(tmp$cou, tmp$gincdif2), margin = 1)
+colnames(redist.cntry) <- c("strongly disagree", "disagree", "neither", "agree", "strongly agree")
 
-pdf(paste0(graphPath, "redistByCntry.pdf"), h=5, w=11)
-barplot(redistMean[,1], cex.names = .7, ylim = c(0,5), space = c(1,1))
+redist.cntry <- redist.cntry[order(redist.cntry[,5], redist.cntry[,4]),]
+
+pdf(paste0(graphPath, "redistByCntry.pdf"), h=5, w=7)
+par(mar = c(4, 2, 0, 0))
+barplot(as.matrix(t(redist.cntry)), horiz = T, cex.names = 0.5, axes = F, las = 2)
+par(fig = c(0, 1, 0, 1), oma = c(0,0,6,0), mar = c(0, 0, 0, 0), new = TRUE)
+legend("bottom", colnames(redist.cntry), xpd=T, horiz = F
+  , fill = gray.colors(5)
+  , ncol = 5, cex = 0.8, bty ="n")
 dev.off()
+
+# Credit Access by Year (Appendix Table)
+tmp$crdt <- ifelse(tmp$brwmny == 4 | tmp$brwmny == 5, 1
+  , ifelse(tmp$brwmny >= 1 & tmp$brwmny <= 3, 0, NA))
+prop.table(table(tmp$essround, tmp$crdt), margin = 1)
+
+# Credit Access by Cnty-Yr (Appendix Table)
+# average crdtAcs & Redistribution
+crdt.CntryYr <- ddply(tmp, .(cntry.yr), summarize, m.crdt=mean(crdt, na.rm=T))
+crdt.CntryYr$cntry <- substr(crdt.CntryYr$cntry.yr, start = 1, stop = 3)
+crdt.CntryYr$year <- substr(crdt.CntryYr$cntry.yr, start = 4, stop = 7)
+crdt.CntryYr$cntry.yr <- NULL
+
+# long2wide
+crdt.CntryYr <- reshape(crdt.CntryYr, idvar="cntry",timevar="year",direction="wide")
+
+# plot crdtAcs by cntry.yr
+pdf(paste0(graphPath, "crdtAcs_cntryYr.pdf"), h=8, w=14)
+barplot(as.matrix(t(crdt.CntryYr[, c(2:ncol(crdt.CntryYr))])), beside = T, col=grey.colors(5),
+  ylab="Ability to Borrow", names.arg = crdt.CntryYr$cntry, ylim=c(0,1))
+box(bty="l")
+legend("topleft", legend = c("2002", "2004", "2006", "2008", "2010"), fill = grey.colors(5)
+  , cex = 1, bty = "n")
+dev.off()
+
 
 
 # Plot the random coefficients for brwmny, along with standard errors
