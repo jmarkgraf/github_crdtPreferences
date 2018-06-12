@@ -60,6 +60,10 @@ ess$rlgdgr <- ifelse(ess$rlgdgr > 11, NA, ess$rlgdgr)
 unique (ess$agea)
 ess$agea <- ifelse(ess$agea > 120, NA, ess$agea)
 
+# recode homeowner variable for robustness
+ess$h.owner <- ifelse(ess$hhmodwl >2, NA, ess$hhmodwl)
+ess$h.owner <- ifelse(ess$h.owner == 2, 0, 1)
+
 unique(ess$gincdif2)
 unique(ess$male)
 hist(log(ess$perceqnatincdollar))
@@ -831,6 +835,27 @@ for (i in 1:2){
 }
 round (hat.y,2)
 
+###########################################################
+
+# ROBUSTNESS
+
+# 1) social network effects
+fit.socialorigin <- lmer(gincdif2 ~ brwmny * socialorigin
+  + log.income + male + agea + unemplindiv 
+  + eduyrs2 + mbtru2 + rlgdgr 
+  + socgdp + log.gdpc
+  + (1 + brwmny * socialorigin | cntry.yr),
+  weights = dweight, data=tmp)
+summary(fit.socialorigin)
+
+# 1) wealth effects
+fit.wealth <- lmer(gincdif2 ~ brwmny * h.owner
+  + log.income + male + agea + unemplindiv 
+  + eduyrs2 + mbtru2 + rlgdgr 
+  + socgdp + log.gdpc
+  + (1 + brwmny * h.owner | cntry.yr),
+  weights = dweight, data=tmp, subset = essround == 2)
+summary(fit.wealth)
 
 
 
@@ -1300,6 +1325,14 @@ stargazer (fit.baseline, fit.ineqnet, fit.hiend, fit.loend, fit.bothend
 
 #### Graphs ####
 graphPath <- paste0(getwd (),"/Draft/draftMPSA/")
+
+# Plot country average support for redistribution
+redistMean <- as.data.frame(tapply(complete.ess$gincdif2, complete.ess$cou, mean, na.rm=T))
+
+pdf(paste0(graphPath, "redistByCntry.pdf"), h=5, w=11)
+barplot(redistMean[,1], cex.names = .7, ylim = c(0,5), space = c(1,1))
+dev.off()
+
 
 # Plot the random coefficients for brwmny, along with standard errors
 # BAsed on model fit.baseline
