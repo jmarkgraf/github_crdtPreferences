@@ -283,7 +283,8 @@ include.vars <- c("gincdif2bin","gincdif2","brwmny","male"
                   ,"gininet","epl","unempl"
                   ,"mainsample","incomeTER.TR","incomeQNT.TR"
                   ,"incomeLOG","incomeQNT","incomeTER"
-                  ,"risk","income","cntry.yr","dweight","country.year.isco")
+                  ,"risk","income","cntry.yr","h.owner","socialorigin"
+                  ,"essround","dweight")
 tmp <- complete.ess[,include.vars]
 tmp$log.income <- log(tmp$income)
 tmp$log.gdpc   <- log(tmp$gdpc)
@@ -304,8 +305,6 @@ for (i in 1:length (vars2rescale)) {
    tmp[,grep (paste0("^",var,"$"), colnames(tmp))] <- resc.var
 }
 
-stargazer (tmp)
-
 #### MODELS ####
 # Baseline model
 fit.baseline <- lmer(gincdif2 ~ brwmny
@@ -316,470 +315,91 @@ fit.baseline <- lmer(gincdif2 ~ brwmny
   weights = dweight, data=tmp)
 summary(fit.baseline)
 
-#### Graph fit.gini ####
-# Find the omitted data
-omitted.obs <- as.numeric (attr (fit.baseline@frame, "na.action"))
-# Every survey has at least one omitted variable. Nine surveys are
-# completely omitted. These are:
-noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
-withData <- unique(tmp$cntry.yr)[is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
-
-pointPred <- ranef (fit.baseline)$cntry.yr[,2] + fixef(fit.baseline)[grep("^brwmny$", names (fixef (fit.baseline)))]
-se.pointPred <- se.ranef (fit.baseline)$cntry.yr[,2]
-correctOrder <- order (pointPred)
-
-# marginal effect of access-to-credit conditional on gini: dY/dbrwmny|gininet
-which.brwmny <- grep("^brwmny$", names (fixef(fit.baseline)))
-margEffect <- fixef (fit.baseline)[which.brwmny]
-se.margEffect <- sqrt(vcov(fit.baseline)[which.brwmny,which.brwmny])
-
-# pdf (paste0(graphicsPath, "randomEffect.pdf"), h=7, w=10)
-par (mar=c(3,4,0.5,0.5), las=0)
-plot (pointPred, type="n", bty="n"
-      , xlab=""
-      , ylab="", axes=F
-      , ylim=c(-0.25,0.1), cex.axis=0.8)
-axis (2)
-axis (1, at=c(0,length(pointPred)), labels=NA)
-mtext (side=1, line=1
-       , text="Country-year units (ordered by size of marginal effect)")
-mtext (side=2, line=3
-       , text="Marginal effect of access to credit")
-mtext (side=2, line=2
-       , text="on redistributive preference")
-polygon( y=c(rep(margEffect+1.96*se.margEffect,2), rep(margEffect-1.96*se.margEffect,2))
-         , x=c(0,length(pointPred),length(pointPred),0)
-         , col="gray"
-         , border=NA)
-points (xy.coords(c(0,length(pointPred)), c(margEffect,margEffect)), type="l")
-points (pointPred[correctOrder], pch=19)
-segments (x0=c(1:length(pointPred)), x1=c(1:length(pointPred))
-          , y0=pointPred[correctOrder] + 1.96*se.pointPred[correctOrder]
-          , y1=pointPred[correctOrder] - 1.96*se.pointPred[correctOrder])
-abline (h=0, lty=2)
-# dev.off ()
-
 # Meltzer-Richard Fork
 fit.gini <- lmer(gincdif2 ~ brwmny*gininet
                      + log.income + male + agea + unemplindiv 
                      + eduyrs2 + mbtru2 + rlgdgr 
                      + socgdp + log.gdpc
                      + (1 + brwmny | cntry.yr),
-                     weights = dweight, na.action="na.omit", data=tmp)
+                     weights = dweight, data=tmp)
 summary(fit.gini)
 interplot(fit.gini, "brwmny", "gininet")
 
-#### Graph fit.gini ####
-# Find the omitted data
-omitted.obs <- as.numeric (attr (fit.gini@frame, "na.action"))
-# Every survey has at least one omitted variable. Nine surveys are
-# completely omitted. These are:
-noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
 
-pointPred <- ranef (fit.gini)$cntry.yr[,2] + fixef(fit.gini)[grep("^brwmny$", names (fixef (fit.gini)))]
-se.pointPred <- se.ranef (fit.gini)$cntry.yr[,2]
-giniPoints <- as.numeric (unlist (by (tmp$gininet, tmp$cntry.yr, unique)))
-# Eliminate those countries that are not in the estimation
-giniPoints <- giniPoints[is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
-correctOrder <- order (pointPred)
-
-# marginal effect of access-to-credit conditional on gini: dY/dbrwmny|gininet
-giniSim <- seq (-2,3, length=50)
-which.brwmny <- grep("^brwmny$", names (fixef(fit.gini)))
-which.interac <- grep("brwmny:gininet", names (fixef(fit.gini)))
-margEffect <- fixef (fit.gini)[which.brwmny] + fixef (fit.gini)[which.interac]*giniSim
-se.margEffect <- sqrt(vcov(fit.gini)[which.brwmny,which.brwmny] 
-               + vcov(fit.gini)[which.interac,which.interac]*(giniSim^2)
-               + vcov(fit.gini)[which.brwmny,which.interac]*2*giniSim)
-
-# pdf (paste0(graphicsPath, "GiniEffect.pdf"), h=7, w=10)
-par (mar=c(3,4,0.5,0.5), las=0)
-plot (pointPred~giniPoints, type="n", bty="n"
-      , xlab=""
-      , ylab=""
-      , ylim=c(-0.25,0.1), cex.axis=0.8)
-mtext (side=1, line=2
-       , text="Post-fisc income inequality (Gini, standardized)")
-mtext (side=2, line=3
-       , text="Marginal effect of access to credit")
-mtext (side=2, line=2
-       , text="on redistributive preference")
-polygon( y=c(margEffect+1.96*se.margEffect, rev(margEffect-1.96*se.margEffect))
-         , x=c(giniSim, rev(giniSim))
-         , col="gray"
-         , border=NA)
-points (xy.coords(giniSim, margEffect), type="l")
-points (xy.coords(giniPoints, pointPred), pch=19)
-segments (x0=giniPoints, x1=giniPoints
-          , y0=pointPred + 1.96*se.pointPred
-          , y1=pointPred - 1.96*se.pointPred)
-abline (h=0, lty=2)
-# dev.off ()
-
-# Expected marginal effect of brwmny at min and max values of Gini
-fixef (fit.gini)[which.brwmny] + fixef (fit.gini)[which.interac]*min (giniPoints)
-fixef (fit.gini)[which.brwmny] + fixef (fit.gini)[which.interac]*max (giniPoints)
-
-
-#### Other Meltzer-Richards models ####
-# Rescale variables
-tmp$brwmny.std <- (tmp$brwmny-mean(tmp$brwmny, na.rm=T))/sd(tmp$brwmny, na.rm=T)
-tmp$log.income.std <- (tmp$log.income-mean(tmp$log.income, na.rm=T))/sd(tmp$log.income, na.rm=T)
 
 # Interaction with income
-fit.income <- lmer(gincdif2 ~ brwmny.std + log.income.std
-                   + brwmny.std:log.income.std
+fit.income <- lmer(gincdif2 ~ brwmny + log.income
+                   + brwmny:log.income
                    + male + agea + unemplindiv 
                    + eduyrs2 + mbtru2 + rlgdgr 
                    + socgdp + log.gdpc
-                   + (1 + brwmny.std + log.income.std
-                      + brwmny.std:log.income.std | cntry.yr),
+                   + (1 + brwmny | cntry.yr),
                    weights = dweight, data=tmp)
 summary(fit.income)
-# interplot (fit.income, "brwmny", "log.income")
+interplot (fit.income, "brwmny", "log.income")
 
-#### Graph fit.income ####
-# Find the omitted data
-omitted.obs <- as.numeric (attr (fit.income@frame, "na.action"))
-# Every survey has at least one omitted variable. Nine surveys are
-# completely omitted. These are:
-noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
-
-incomeSims <- seq(-3,4,length=50)
-interceptPred <- ranef (fit.income)$cntry.yr[,grep("^brwmny.std$", names (fixef (fit.income)))] +
-   fixef(fit.income)[grep("^brwmny.std$", names (fixef (fit.income)))]
-slopePred <- ranef (fit.income)$cntry.yr[,grep("^brwmny.std:log.income.std$", names (ranef (fit.income)$cntry.yr))] + fixef(fit.income)[grep("^brwmny.std:log.income.std$", names (fixef (fit.income)))]
-which.brwmny <- grep("^brwmny.std$", names (fixef(fit.income)))
-which.interac <- grep("^brwmny.std:log.income.std$", names (fixef(fit.income)))
-se.pointPred <- se.ranef (fit.income)$cntry.yr[,2]
-margEffect <- fixef (fit.income)[which.brwmny] + fixef (fit.income)[which.interac]*incomeSims
-se.margEffect <- sqrt(vcov(fit.income)[which.brwmny,which.brwmny] +
-                            vcov(fit.income)[which.interac,which.interac]*(incomeSims^2) +
-                            vcov(fit.income)[which.brwmny,which.interac]*2*incomeSims)
-
-calculateImpact <- fixef (fit.income)[which.interac]*quantile(tmp$log.income.std, prob=0.75, na.rm=T) -
-                     fixef (fit.income)[which.interac]*quantile(tmp$log.income.std, prob=0.25, na.rm=T)
-calculateImpact/0.044 # denominator is standard deviation of cross-survey random effects for credit
-
-# pdf (paste0(graphicsPath, "creditEffectVIncome.pdf"), h=7, w=10)
-par (mar=c(3,4,0.5,0.5), las=0)
-plot (margEffect~incomeSims, bty="n", type="n"
-      , xlab=""
-      , ylab="", pch=19, axes=F
-      , ylim=c(-0.3,0.1), xlim=c(-2,3), cex.axis=0.8)
-for (i in 1:length(interceptPred)){
-   abline (a=interceptPred[i], b=slopePred[i], col="gray")
-}
-polygon( y=c(margEffect+1.96*se.margEffect, rev(margEffect-1.96*se.margEffect))
-         , x=c(incomeSims, rev(incomeSims))
-         , col="gray"
-         , border=NA)
-points (xy.coords(incomeSims, margEffect), type="l")
-axis (2)
-axis (1)
-mtext (side=1, line=2
-       , text="Income (log)")
-mtext (side=2, line=3
-       , text="Marginal pooled effect of access to credit")
-mtext (side=2, line=2
-       , text="on redistributive preference")
-abline (h=0, lty=2)
-# dev.off ()
+# Interaction with Thewissen-Rueda tertiles
+fit.incomeTR <- lmer(gincdif2 ~ brwmny + incomeTER.TR
+                     + brwmny:incomeTER.TR
+                     + male + agea + unemplindiv 
+                     + eduyrs2 + mbtru2 + rlgdgr 
+                     + socgdp + log.gdpc
+                     + (1 + brwmny  | cntry.yr),
+                     weights = dweight, data=tmp)
+summary(fit.incomeTR)
 
 
+# Interaction with  quintiles
+fit.incomeQNT <- lmer(gincdif2 ~ brwmny + incomeQNT
+                      + brwmny:incomeQNT
+                      + male + agea + unemplindiv 
+                      + eduyrs2 + mbtru2 + rlgdgr 
+                      + socgdp + log.gdpc
+                      + (1 + brwmny | cntry.yr),
+                      weights = dweight, data=tmp)
+summary(fit.incomeQNT)
 
-# # Interaction with Thewissen-Rueda tertiles
-# fit.incomeTR <- lmer(gincdif2 ~ brwmny + incomeTER.TR
-#                      + brwmny:incomeTER.TR
-#                      + male + agea + unemplindiv 
-#                      + eduyrs2 + mbtru2 + rlgdgr 
-#                      + socgdp + log.gdpc
-#                      + (1 + brwmny  | cntry.yr),
-#                      weights = dweight, data=tmp)
-# summary(fit.incomeTR)
-
-
-# Interaction with  quintiles takes forever with actual random coefficients
-# fit.incomeQNT <- lmer(gincdif2 ~ brwmny + incomeQNT
-#                       + brwmny:incomeQNT
-#                       + male + agea + unemplindiv 
-#                       + eduyrs2 + mbtru2 + rlgdgr 
-#                       + socgdp + log.gdpc
-#                       + (1 + brwmny | cntry.yr),
-#                       weights = dweight, data=tmp)
-# summary(fit.incomeQNT)
-
-# tmp$lo.quintile <- car::recode (as.character(tmp$incomeQNT), "'1'=1; NA=NA; else=0") #& !is.na(tmp$incomeQNT), 1, ifelse (is.na(tmp$incomeQNT), NA, 0))
-# tmp$hi.quintile <- car::recode (as.character(tmp$incomeQNT), "'5'=1; NA=NA; else=0") #& !is.na(tmp$incomeQNT), 1, ifelse (is.na(tmp$incomeQNT), NA, 0))
-# tmp$lo.quintile <- (tmp$lo.quintile-mean(tmp$lo.quintile, na.rm=T))/sd(tmp$lo.quintile, na.rm=T)
-# tmp$hi.quintile <- (tmp$hi.quintile-mean(tmp$hi.quintile, na.rm=T))/sd(tmp$hi.quintile, na.rm=T)
-# tmp$interac.lo <- (tmp$brwmny.std*tmp$lo.quintile-mean(tmp$brwmny.std*tmp$lo.quintile,na.rm=T))/sd(tmp$brwmny.std*tmp$lo.quintile,na.rm=T)
-# tmp$interac.hi <- (tmp$brwmny.std*tmp$hi.quintile-mean(tmp$brwmny.std*tmp$hi.quintile,na.rm=T))/sd(tmp$brwmny.std*tmp$hi.quintile,na.rm=T)
-# 
-# fit.incomeQNT.alt <- lmer(gincdif2 ~ brwmny.std + lo.quintile
-#                       + interac.lo + hi.quintile
-#                       + interac.hi
-#                       + male + agea + unemplindiv 
-#                       + eduyrs2 + mbtru2 + rlgdgr 
-#                       + socgdp + log.gdpc
-#                       + (1 + brwmny + lo.quintile
-#                          + interac.lo + hi.quintile
-#                          + interac.hi | cntry.yr),
-#                       weights = dweight, data=tmp)
-# summary(fit.incomeQNT.alt)
-
-#### Graph fit.incomeQNT.alt ####
-# Find the omitted data
-# omitted.obs <- as.numeric (attr (fit.incomeQNT.alt@frame, "na.action"))
-# # Every survey has at least one omitted variable. Nine surveys are
-# # completely omitted. These are:
-# noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
-# 
-# pointPred.lo <- ranef (fit.incomeQNT.alt)$cntry.yr[,grep("^brwmny.std$", names (fixef (fit.incomeQNT.alt)))] +
-#             fixef(fit.incomeQNT.alt)[grep("^brwmny.std$", names (fixef (fit.incomeQNT.alt)))] +
-#             max(unique(tmp$lo.quintile), na.rm=T)* (ranef (fit.incomeQNT.alt)$cntry.yr[,grep("^interac.lo$", names (fixef (fit.incomeQNT.alt)))] + fixef(fit.incomeQNT.alt)[grep("^interac.lo$", names (fixef (fit.incomeQNT.alt)))])
-# which.brwmny <- grep("^brwmny.std$", names (fixef(fit.incomeQNT.alt)))
-# which.interac <- grep("interac.lo", names (fixef(fit.incomeQNT.alt)))
-# se.pointPred.lo <- sqrt(vcov(fit.incomeQNT.alt)[which.brwmny,which.brwmny] +
-#                         vcov(fit.incomeQNT.alt)[which.interac,which.interac]*(max(unique(tmp$lo.quintile), na.rm=T)^2) +
-#                         vcov(fit.incomeQNT.alt)[which.brwmny,which.interac]*2*max(unique(tmp$lo.quintile), na.rm=T))
-# margEffect.lo <- fixef (fit.incomeQNT.alt)[which.brwmny] + fixef (fit.incomeQNT.alt)[which.interac]*max(unique(tmp$lo.quintile), na.rm=T)
-# se.margEffect.lo <- sd (pointPred.lo)
-# 
-# correctOrder <- order (pointPred.lo)
-# 
-# pointPred.hi <- ranef (fit.incomeQNT.alt)$cntry.yr[,grep("^brwmny.std$", names (fixef (fit.incomeQNT.alt)))] +
-#             fixef(fit.incomeQNT.alt)[grep("^brwmny.std$", names (fixef (fit.incomeQNT.alt)))] +
-#             (ranef (fit.incomeQNT.alt)$cntry.yr[,grep("^interac.hi$", names (fixef (fit.incomeQNT.alt)))] + fixef(fit.incomeQNT.alt)[grep("^interac.hi$", names (fixef (fit.incomeQNT.alt)))])*max(unique(tmp$hi.quintile), na.rm=T)
-# which.interac <- grep("interac.hi", names (fixef(fit.incomeQNT.alt)))
-# se.pointPred.hi <- sqrt(vcov(fit.incomeQNT.alt)[which.brwmny,which.brwmny] +
-#                         vcov(fit.incomeQNT.alt)[which.interac,which.interac]*(max(unique(tmp$hi.quintile), na.rm=T)^2) +
-#                         vcov(fit.incomeQNT.alt)[which.brwmny,which.interac]*2*max(unique(tmp$hi.quintile), na.rm=T))
-# margEffect.hi <- fixef (fit.incomeQNT.alt)[which.brwmny] + fixef (fit.incomeQNT.alt)[which.interac]*max(unique(tmp$hi.quintile), na.rm=T)
-# se.margEffect.hi <- sd (pointPred.hi)
-# 
-# 
-# 
-# # pdf (paste0(graphicsPath, "incomeQuintile.pdf"), h=7, w=10)
-# par (mar=c(3,4,0.5,0.5), las=0)
-# plot (pointPred.lo[correctOrder], bty="n"
-#       , xlab=""
-#       , ylab="", pch=19, axes=F
-#       , ylim=c(-0.3,0.1), cex.axis=0.8)
-# points (pointPred.hi[correctOrder] 
-#         , pch=19, col="grey")
-# axis (2)
-# axis (1, at=c(1,length(pointPred)), labels=NA)
-# mtext (side=1, line=1
-#        , text="Country-years")
-# mtext (side=2, line=3
-#        , text="Marginal effect of access to credit")
-# mtext (side=2, line=2
-#        , text="on redistributive preference")
-# abline (h=margEffect.lo)
-# abline (h=margEffect.hi, col="gray")
-# # polygon( y=c(margEffect.lo+1.96*se.margEffect.lo
-# #              , margEffect.lo+1.96*se.margEffect.lo
-# #              , margEffect.lo-1.96*se.margEffect.lo
-# #              , margEffect.lo-1.96*se.margEffect.lo)
-# #          , x=c(1, length(pointPred.lo), length(pointPred.lo), 1)
-# #          , col="gray"
-# #          , border=NA)
-# # polygon( y=c(margEffect.hi+1.96*se.margEffect.hi
-# #              , margEffect.hi+1.96*se.margEffect.hi
-# #              , margEffect.hi-1.96*se.margEffect.hi
-# #              , margEffect.hi-1.96*se.margEffect.hi)
-# #          , x=c(1, length(pointPred.hi), length(pointPred.hi), 1)
-# #          , col="gray"
-# #          , border=NA)
-# # points (xy.coords(giniSim, margEffect), type="l")
-# # points (xy.coords(giniPoints, pointPred), pch=19)
-# segments (x0=1:length(pointPred.lo), x1=1:length(pointPred.lo)
-#           , y0=pointPred.lo[correctOrder] + 1.96*se.pointPred.lo
-#           , y1=pointPred.lo[correctOrder] - 1.96*se.pointPred.lo)
-# segments (x0=1:length(pointPred.hi), x1=1:length(pointPred.hi)
-#           , y0=pointPred.hi[correctOrder] + 1.96*se.pointPred.hi
-#           , y1=pointPred.hi[correctOrder] - 1.96*se.pointPred.hi, col="grey")
-# abline (h=0, lty=2)
-# legend ("bottomright", bty="n", legend=c("Poorest","Richest"), pch=19, col=c("black","grey"))
-# # dev.off ()
+# # estimate p.value
+# coefs <- data.frame(coef(summary(fit.income)))
+# coefs$p.value <- 2* (1-pnorm(abs(coefs$t.value)))
+# coefs
 
 
+# Insurance-as-risk fork
+fit.risk <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
+                     + log.income + male + agea
+                     + unemplindiv 
+                     + eduyrs2 + mbtru2 
+                     + rlgdgr + socgdp + log.gdpc
+                     + (1 + brwmny  | cntry.yr),
+                     weights = dweight, data=tmp)
+summary(fit.risk)
+interplot (fit.risk, "brwmny", "risk")
 
-
-
-
-#### Insurance-as-risk fork ####
-fit.risk.macro <- lmer(gincdif2 ~ brwmny*epl
-                 + log.income + male + agea + unemplindiv 
+# Final interaction 
+fit.risk.rich <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
+                 + male + agea + unemplindiv 
                  + eduyrs2 + mbtru2 + rlgdgr 
                  + socgdp + log.gdpc
                  + (1 + brwmny | cntry.yr),
-                 weights = dweight, na.action="na.omit", data=tmp)
-summary(fit.risk.macro)
-interplot(fit.risk.macro, "brwmny", "epl")
-
-#### Graph fit.risk.macro ####
-# Find the omitted data
-omitted.obs <- as.numeric (attr (fit.risk.macro@frame, "na.action"))
-# Every survey has at least one omitted variable. Nine surveys are
-# completely omitted. These are:
-noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
-
-pointPred <- ranef (fit.risk.macro)$cntry.yr[,2] + fixef(fit.risk.macro)[grep("^brwmny$", names (fixef (fit.risk.macro)))]
-se.pointPred <- se.ranef (fit.risk.macro)$cntry.yr[,2]
-eplPoints <- as.numeric (unlist (by (tmp$epl, tmp$cntry.yr, unique)))
-# Eliminate those countries that are not in the estimation
-eplPoints <- eplPoints[is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
-correctOrder <- order (pointPred)
-
-# marginal effect of access-to-credit conditional on gini: dY/dbrwmny|gininet
-eplSim <- seq (0,5, length=50)
-which.brwmny <- grep("^brwmny$", names (fixef(fit.risk.macro)))
-which.interac <- grep("brwmny:epl", names (fixef(fit.risk.macro)))
-margEffect <- fixef (fit.risk.macro)[which.brwmny] + fixef (fit.risk.macro)[which.interac]*eplSim
-se.margEffect <- sqrt(vcov(fit.risk.macro)[which.brwmny,which.brwmny] 
-                      + vcov(fit.risk.macro)[which.interac,which.interac]*(eplSim^2)
-                      + vcov(fit.risk.macro)[which.brwmny,which.interac]*2*eplSim)
-
-# pdf (paste0(graphicsPath, "eplEffect.pdf"), h=7, w=10)
-par (mar=c(3,4,0.5,0.5), las=0)
-plot (pointPred~eplPoints, type="n", bty="n"
-      , xlab=""
-      , ylab=""
-      , ylim=c(-0.30,0.1), cex.axis=0.8)
-mtext (side=1, line=2
-       , text="Employment protection laws")
-mtext (side=2, line=3
-       , text="Marginal effect of access to credit")
-mtext (side=2, line=2
-       , text="on redistributive preference")
-polygon( y=c(margEffect+1.96*se.margEffect, rev(margEffect-1.96*se.margEffect))
-         , x=c(eplSim, rev(eplSim))
-         , col="gray"
-         , border=NA)
-points (xy.coords(eplSim, margEffect), type="l")
-points (xy.coords(eplPoints, pointPred), pch=19)
-segments (x0=eplPoints, x1=eplPoints
-          , y0=pointPred + 1.96*se.pointPred
-          , y1=pointPred - 1.96*se.pointPred)
-abline (h=0, lty=2)
-# dev.off ()
-
-
-
-
-
-
-
-
-
-# Change optimizer: doesn't work
-# lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000))
-
-# Rescale variables
-tmp$risk.std <- (tmp$risk-mean(tmp$risk, na.rm=T))/sd(tmp$risk, na.rm=T)
-
-fit.risk <- lmer(gincdif2 ~ brwmny.std + risk.std + brwmny.std:risk.std
-                     + male + agea + log.income.std
-                     + unemplindiv
-                     + eduyrs2 + mbtru2
-                     + rlgdgr + socgdp + log.gdpc
-                     + (1 + brwmny.std + risk.std + brwmny.std:risk.std | cntry.yr),
-                     weights = dweight, data=tmp)
-summary(fit.risk)
-# interplot (fit.risk, "brwmny", "risk")
-
-#### Graph fit.risk.macro ####
-# Find the omitted data
-omitted.obs <- as.numeric (attr (fit.risk@frame, "na.action"))
-# Every survey has at least one omitted variable. Nine surveys are
-# completely omitted. These are:
-noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
-
-#### Graph fit.risk ####
-riskSims <- seq (-3, 3, length=50)
-interceptPred <- ranef (fit.risk)$cntry.yr[,grep("^brwmny.std$", names (fixef (fit.risk)))] +
-   fixef(fit.risk)[grep("^brwmny.std$", names (fixef (fit.risk)))]
-slopePred <- ranef (fit.risk)$cntry.yr[,grep("^brwmny.std:risk.std$", names (ranef (fit.risk)$cntry.yr))] + fixef(fit.risk)[grep("^brwmny.std:risk.std$", names (fixef (fit.risk)))]
-which.brwmny <- grep("^brwmny.std$", names (fixef(fit.risk)))
-which.interac <- grep("^brwmny.std:risk.std$", names (fixef(fit.risk)))
-margEffect <- fixef (fit.risk)[which.brwmny] + fixef (fit.risk)[which.interac]*riskSims
-se.margEffect <- sqrt(vcov(fit.risk)[which.brwmny,which.brwmny] +
-                         vcov(fit.risk)[which.interac,which.interac]*(riskSims^2) +
-                         vcov(fit.risk)[which.brwmny,which.interac]*2*riskSims)
-
-calculateImpact <- fixef (fit.risk)[which.brwmny] + fixef (fit.risk)[which.interac]*quantile(tmp$risk.std, prob=0.75) -
-   fixef (fit.risk)[which.brwmny] + fixef (fit.risk)[which.interac]*quantile(tmp$risk.std, prob=0.25)
-calculateImpact/0.044 # denominator is standard deviation of cross-survey random effects for credit
-
-# pdf (paste0(graphicsPath, "creditEffectVrisk.pdf"), h=7, w=10)
-par (mar=c(3,4,0.5,0.5), las=0)
-plot (margEffect~riskSims, bty="n", type="n"
-      , xlab=""
-      , ylab="", pch=19, axes=F
-      , ylim=c(-0.3,0.1), xlim=c(-2,2), cex.axis=0.8)
-for (i in 1:length(interceptPred)){
-   abline (a=interceptPred[i], b=slopePred[i], col="gray")
-}
-polygon( y=c(margEffect+1.96*se.margEffect, rev(margEffect-1.96*se.margEffect))
-         , x=c(riskSims, rev(riskSims))
-         , col="gray"
-         , border=NA)
-points (xy.coords(riskSims, margEffect), type="l")
-axis (2)
-axis (1)
-mtext (side=1, line=2
-       , text="Risk of job elimination index")
-mtext (side=2, line=3
-       , text="Marginal pooled effect of access to credit")
-mtext (side=2, line=2
-       , text="on redistributive preference")
-abline (h=0, lty=2)
-# dev.off ()
-
-
-# Final interaction 
-fit.risk.rich <- lmer(gincdif2 ~ brwmny.std + risk.std + brwmny.std:risk.std
-                      + male + agea + log.income.std + unemplindiv
-                      + eduyrs2 + mbtru2
-                      + rlgdgr + socgdp + log.gdpc
-                      + (1 + brwmny.std + risk.std + brwmny.std:risk.std | cntry.yr),
                  weights = dweight, data=tmp, subset=incomeQNT==4 | incomeQNT==5)
 summary(fit.risk.rich)
 
 
-fit.risk.poor <- lmer(gincdif2 ~ brwmny.std + risk.std + brwmny.std:risk.std
-                      + male + agea + log.income.std + unemplindiv
-                      + eduyrs2 + mbtru2
-                      + rlgdgr + socgdp + log.gdpc
-                      + (1 + brwmny.std + risk.std + brwmny.std:risk.std | cntry.yr),
-                      weights = dweight, data=tmp, subset=incomeQNT==1 | incomeQNT==2
-                      , REML = TRUE
-                      , control = lmerControl(optimizer ="Nelder_Mead"))
+fit.risk.poor <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
+                      + male + agea + unemplindiv 
+                      + eduyrs2 + mbtru2 + rlgdgr 
+                      + socgdp + log(gdpc)
+                      + (1 + brwmny  | cntry.yr),
+                      weights = dweight, data=tmp, subset=incomeQNT==1 | incomeQNT==2)
 summary(fit.risk.poor)
 
 
 #### Gather models in a small numer of tables ####
-stargazer (fit.baseline, fit.gini, fit.risk.macro) # Table 1
-stargazer (fit.income, fit.risk) # Table 2
-# stargazer (fit.risk, fit.risk.rich, fit.risk.poor) # Table 3
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+stargazer (fit.baseline, fit.gini, fit.risk)
+stargazer (fit.income, fit.incomeTR, fit.incomeQNT, fit.risk.rich, fit.risk.poor)
 
 # Dichotomous risk variable
 tmp$dich.risk <- as.factor (ifelse (tmp$risk<0, 0, 1))
@@ -840,46 +460,44 @@ round (hat.y,2)
 # ROBUSTNESS
 
 # 1) social network effects
-fit.socialorigin <- lmer(gincdif2 ~ brwmny * socialorigin
+fit.socialorigin <- lmer(gincdif2 ~ brwmny + socialorigin
   + log.income + male + agea + unemplindiv 
   + eduyrs2 + mbtru2 + rlgdgr 
   + socgdp + log.gdpc
-  + (1 + brwmny * socialorigin | cntry.yr),
+  + (1 + brwmny | cntry.yr),
   weights = dweight, data=tmp)
 summary(fit.socialorigin)
 
 # 1) wealth effects
-fit.wealth <- lmer(gincdif2 ~ brwmny * h.owner
+fit.wealth <- lmer(gincdif2 ~ brwmny + h.owner
   + log.income + male + agea + unemplindiv 
   + eduyrs2 + mbtru2 + rlgdgr 
   + socgdp + log.gdpc
-  + (1 + brwmny * h.owner | cntry.yr),
+  + (1 + brwmny | cntry.yr),
   weights = dweight, data=tmp, subset = essround == 2)
 summary(fit.wealth)
 
+fit.robustFull <- lmer(gincdif2 ~ brwmny + h.owner + socialorigin
+  + log.income + male + agea + unemplindiv 
+  + eduyrs2 + mbtru2 + rlgdgr 
+  + socgdp + log.gdpc
+  + (1 + brwmny + h.owner + socialorigin | cntry.yr),
+  weights = dweight, data=tmp, subset = essround == 2)
+summary(fit.robustFull)
 
-
-
-
-
-
-
-
-
-
+# export findings
+stargazer(fit.socialorigin, fit.wealth, fit.robustFull)
 
 ###########################################################
 #### RUN REGRESSIONS BY "CNTRY.YR" and STORE ESTIMATES ####
 ###########################################################
 
 # generate variable indicating missing income information
-detach (package:plyr)
 tmp <- tmp %>%
   group_by(cntry.yr) %>%
   mutate(n_unique = n_distinct(incomeQNT))
-tmp$incomeNA <- ifelse(tmp$n_unique > 2, 0, 1)
+tmp$incomeNA <- ifelse(tmp$n_unique > 2, 0,1)
 
-library (plyr)
 # with "incomeQNT"
 incomeQNT_results <- dlply(tmp[tmp$incomeNA == 0,], "cntry.yr", function(df)
   lm(gincdif2 ~ brwmny + incomeQNT + brwmny : incomeQNT
@@ -912,49 +530,16 @@ incomeLog <- lapply(incomeLog_results, function(x) coef(x)[grep ("brwmny", names
 incomeTER <- lapply(incomeTER_results, function(x) coef(x)[grep ("brwmny", names(coef(x)))])
 
 incomeQNT.vcov <- lapply(incomeQNT_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
-incomeLog.vcov <- lapply(incomeLog_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
+incomeLog.vcov <- lapply(incomeLOG_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
 incomeTER.vcov <- lapply(incomeTER_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
 
-incomeCategory <- c("QNT1","QNT2","QNT4","QNT5")
-allIntervals <- list()
-for (i in 1:length(incomeQNT)) {
-   intervals <- c()
-   for (j in 1:4) {
-      incomeCat <- incomeCategory[j]
-      temp1 <- incomeQNT[[i]]
-      temp2 <- incomeQNT.vcov[[i]]
-      margEffect <- temp1[grep ("^brwmny$", names(temp1))] + temp1[grep (incomeCat, names(temp1))]
-      var1 <- temp2[grep ("^brwmny$", names(temp1)), grep ("^brwmny$", names(temp1))]
-      var2 <- temp2[grep (incomeCat, names(temp1)), grep (incomeCat, names(temp1))]
-      cov  <- temp2[grep ("^brwmny$", names(temp1)), grep (incomeCat, names(temp1))]
-      seMargEffect <- sqrt (  var1 + var2 + 2*cov )
-      intervals <- rbind (intervals, c(margEffect-1.96*seMargEffect, margEffect+1.96*seMargEffect))
-   }
-   allIntervals[[i]] <- intervals
-}
 
-intervals <- c()
-for (i in 1:length(incomeQNT)) {
-   temp1 <- incomeQNT[[i]]
-   temp2 <- incomeQNT.vcov[[i]]
-   margEffect <- temp1[grep ("^brwmny$", names(temp1))]
-   seMargEffect <- sqrt (temp2[grep ("^brwmny$", names(temp1)), grep ("^brwmny$", names(temp1))])
-   intervals <- rbind (intervals, c(margEffect-1.96*seMargEffect, margEffect+1.96*seMargEffect))
-}
 
-plot (c(1,5), c(-0.5,0.5), type="n", axes=F
-      , ylab="Marginal effect of credit access conditional on income group"
-      , xlab="Income group")
-axis (2)
-axis (1, at=c(1,2,3,4,5), labels=c("Q1","Q2","Q3","Q4","Q5"))
-for (i in 1:length(allIntervals)){
-   for (j in 1:4){
-      x <- jitter(c(1,2,4,5)[j])
-      segments(y0=allIntervals[[i]][1,1], y1=allIntervals[[i]][1,2], x0=x, x1=x)
-   }
-   x <- jitter(3)
-   segments (y0=intervals[i,1], y1=intervals[i,2], x0=x, x1=x)
-}
+
+
+
+
+
 
 
 
