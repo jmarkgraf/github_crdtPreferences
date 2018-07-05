@@ -283,6 +283,7 @@ include.vars <- c("gincdif2bin","gincdif2","brwmny","male"
                   ,"gininet","epl","unempl"
                   ,"mainsample","incomeTER.TR","incomeQNT.TR"
                   ,"incomeLOG","incomeQNT","incomeTER"
+                  ,"h.owner","socialorigin","essround"
                   ,"risk","income","cntry.yr","dweight","country.year.isco")
 tmp <- complete.ess[,include.vars]
 tmp$log.income <- log(tmp$income)
@@ -468,11 +469,11 @@ plot (margEffect~incomeSims, bty="n", type="n"
       , ylab="", pch=19, axes=F
       , ylim=c(-0.3,0.1), xlim=c(-2,3), cex.axis=0.8)
 for (i in 1:length(interceptPred)){
-   abline (a=interceptPred[i], b=slopePred[i], col="gray")
+   abline (a=interceptPred[i], b=slopePred[i], col="lightgray")
 }
 polygon( y=c(margEffect+1.96*se.margEffect, rev(margEffect-1.96*se.margEffect))
          , x=c(incomeSims, rev(incomeSims))
-         , col="gray"
+         , col="darkgray"
          , border=NA)
 points (xy.coords(incomeSims, margEffect), type="l")
 axis (2)
@@ -720,11 +721,11 @@ plot (margEffect~riskSims, bty="n", type="n"
       , ylab="", pch=19, axes=F
       , ylim=c(-0.3,0.1), xlim=c(-2,2), cex.axis=0.8)
 for (i in 1:length(interceptPred)){
-   abline (a=interceptPred[i], b=slopePred[i], col="gray")
+   abline (a=interceptPred[i], b=slopePred[i], col="lightgray")
 }
 polygon( y=c(margEffect+1.96*se.margEffect, rev(margEffect-1.96*se.margEffect))
          , x=c(riskSims, rev(riskSims))
-         , col="gray"
+         , col="darkgray"
          , border=NA)
 points (xy.coords(riskSims, margEffect), type="l")
 axis (2)
@@ -840,8 +841,8 @@ round (hat.y,2)
 # ROBUSTNESS
 
 # 1) social network effects
-fit.socialorigin <- lmer(gincdif2 ~ brwmny * socialorigin
-  + log.income + male + agea + unemplindiv 
+fit.socialorigin <- lmer(gincdif2 ~ brwmny.std * socialorigin
+  + log.income.std + male + agea + unemplindiv 
   + eduyrs2 + mbtru2 + rlgdgr 
   + socgdp + log.gdpc
   + (1 + brwmny * socialorigin | cntry.yr),
