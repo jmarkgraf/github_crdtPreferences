@@ -189,10 +189,15 @@ bartlett.scores   <- std.predictors %*% t(solve (t(Lambda) %*% Phi %*% Lambda) %
 num.Missing <- apply (std.predictors, 1, function (x) sum (is.na(x)))
 allMissing <- ifelse (num.Missing==5, 1, 0)
 
-# Multiple imputation of observations that have at least one (1) "risk" measure
-mi.predictors <- mice (predictors[allMissing==0,], m=1
-                       , method=c("pmm","pmm","pmm","logreg","polr"))
-mi.predictors <- complete (mi.predictors)
+## Do not need to run multiple imputation again, if
+## file in line 199 is re-loaded
+# # Multiple imputation of observations that have at least one (1) "risk" measure
+# mi.predictors <- mice (predictors[allMissing==0,], m=1
+#                        , method=c("pmm","pmm","pmm","logreg","polr"))
+# mi.predictors <- complete (mi.predictors)
+# save (mi.predictors, file="~/Dropbox/CreditPreferences/Data/riskPCdata/riskPC.Rda")
+load (file="~/Dropbox/CreditPreferences/Data/riskPCdata/riskPC.Rda")
+
 # rownames (mi.predictors) <- rownames(std.predictors)[allMissing==0]
 
 # Standardize multiply-imputed predictors (to construct factanal scores)
@@ -206,6 +211,165 @@ pdf (paste0 (graphicsPath, "RiskHistogram.pdf"), h=5, w=7)
 par (mar=c(4,4,1,1))
 hist (complete.ess$risk, main="", xlab="Relative risk of losing job")
 dev.off()
+
+#### Create risk/income groups ####
+risky.rich <- ifelse (complete.ess$risk > 0 
+                      & complete.ess$incomeTER==3
+                      & !is.na(complete.ess$incomeTER), 1, 0)
+riskless.rich <- ifelse (complete.ess$risk < 0 
+                      & complete.ess$incomeTER==3
+                      & !is.na(complete.ess$incomeTER), 1, 0)
+risky.poor <- ifelse (complete.ess$risk > 0 
+                      & complete.ess$incomeTER==1
+                      & !is.na(complete.ess$incomeTER), 1, 0)
+riskless.poor <- ifelse (complete.ess$risk < 0 
+                      & complete.ess$incomeTER==1
+                      & !is.na(complete.ess$incomeTER), 1, 0)
+
+#### Distribution of preference for redistribution among risk/income groups ####
+par (mfrow=c(2,2), mar=c(3,3,1,1))
+hist (complete.ess$gincdif2[risky.rich==1]
+      , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
+      , main="Risky rich")
+hist (complete.ess$gincdif2[risky.poor==1]
+      , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
+      , main="Risky poor")
+hist (complete.ess$gincdif2[riskless.rich==1]
+      , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
+      , main="Riskless rich")
+hist (complete.ess$gincdif2[riskless.poor==1]
+      , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
+      , main="Riskless poor")
+
+
+
+par (mfrow=c(2,2), mar=c(3,3,1,1))
+hist (complete.ess$gincdif2bin[risky.rich==1]
+      , ylim=c(0,30000)
+      , main="Risky rich")
+hist (complete.ess$gincdif2bin[risky.poor==1]
+      , ylim=c(0,30000)
+      , main="Risky poor")
+hist (complete.ess$gincdif2bin[riskless.rich==1]
+      , ylim=c(0,30000)
+      , main="Riskless rich")
+hist (complete.ess$gincdif2bin[riskless.poor==1]
+      , ylim=c(0,30000)
+      , main="Riskless poor")
+
+print ("risky rich")
+length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==0 & risky.rich==1])/length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==1 & risky.rich==1])
+print ("riskless rich")
+length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==0 & riskless.rich==1])/length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==1 & riskless.rich==1])
+print ("risky poor")
+length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==0 & risky.poor==1])/length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==1 & risky.poor==1])
+print ("riskless poor")
+length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==0 & riskless.poor==1])/length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==1 & riskless.poor==1])
+
+
+#### Distribution of access to credit among risk/income groups ####
+par (mfrow=c(2,2), mar=c(3,3,1,1))
+hist (complete.ess$brwmny[risky.rich==1]
+      , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
+      , main="Risky rich")
+hist (complete.ess$brwmny[risky.poor==1]
+      , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
+      , main="Risky poor")
+hist (complete.ess$brwmny[riskless.rich==1]
+      , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
+      , main="Riskless rich")
+hist (complete.ess$brwmny[riskless.poor==1]
+      , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
+      , main="Riskless poor")
+
+#### Create dichotomous brwmny ####
+complete.ess$brwmnybin <- ifelse (complete.ess$brwmny <= 3 & !is.na(complete.ess$brwmny), 0
+                                  , ifelse (complete.ess$brwmny > 3 & !is.na(complete.ess$brwmny), 1, NA))
+
+print ("risky rich")
+mean(complete.ess$brwmnybin[risky.rich==1], na.rm=T)
+print ("riskless rich")
+mean(complete.ess$brwmnybin[riskless.rich==1], na.rm=T)
+print ("risky poor")
+mean(complete.ess$brwmnybin[risky.poor==1], na.rm=T)
+print ("riskless poor")
+mean(complete.ess$brwmnybin[riskless.poor==1], na.rm=T)
+
+
+
+
+
+#### Means and standard deviations ####
+# Risky rich
+mn.risky.rich.credit <- mean (complete.ess$gincdif2bin[risky.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mn.risky.rich.no.credit <- mean (complete.ess$gincdif2bin[risky.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.risky.rich.credit <- sd (complete.ess$gincdif2bin[risky.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.risky.rich.no.credit <- sd (complete.ess$gincdif2bin[risky.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+ln.risky.rich.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & risky.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
+ln.risky.rich.no.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & risky.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+
+# Riskless rich
+mn.riskless.rich.credit <- mean (complete.ess$gincdif2bin[riskless.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mn.riskless.rich.no.credit <- mean (complete.ess$gincdif2bin[riskless.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.riskless.rich.credit <- sd (complete.ess$gincdif2bin[riskless.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.riskless.rich.no.credit <- sd (complete.ess$gincdif2bin[riskless.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+ln.riskless.rich.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & riskless.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
+ln.riskless.rich.no.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & riskless.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+
+# Risky poor
+mn.risky.poor.credit <- mean (complete.ess$gincdif2bin[risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mn.risky.poor.no.credit <- mean (complete.ess$gincdif2bin[risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.risky.poor.credit <- sd (complete.ess$gincdif2bin[risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.risky.poor.no.credit <- sd (complete.ess$gincdif2bin[risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+ln.risky.poor.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
+ln.risky.poor.no.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+
+# Riskless poor
+mn.riskless.poor.credit <- mean (complete.ess$gincdif2bin[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mn.riskless.poor.no.credit <- mean (complete.ess$gincdif2bin[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.riskless.poor.credit <- sd (complete.ess$gincdif2bin[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.riskless.poor.no.credit <- sd (complete.ess$gincdif2bin[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+ln.riskless.poor.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
+ln.riskless.poor.no.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+
+means.cat <- c(mn.risky.rich.credit, mn.risky.rich.no.credit
+  , mn.riskless.rich.credit, mn.riskless.rich.no.credit
+  , mn.risky.poor.credit, mn.risky.poor.no.credit
+  , mn.riskless.poor.credit, mn.riskless.poor.no.credit)
+
+sd.cat <- c(sd.risky.rich.credit, sd.risky.rich.no.credit
+               , sd.riskless.rich.credit, sd.riskless.rich.no.credit
+               , sd.risky.poor.credit, sd.risky.poor.no.credit
+               , sd.riskless.poor.credit, sd.riskless.poor.no.credit)
+
+plot (c(0,5), c(0,1), type="n"
+      , axes=F, main="")
+mtext (side=1, line=0
+       , at=c(1:4), text=c("risky","riskless","risky","riskless"))
+mtext (side=1, line=1
+       , at=c(1:4), text=c("rich","rich","poor","poor"))
+axis (2)
+points (y=means.cat
+        , x=c(0.8,1.2,1.8,2.2,2.8,3.2,3.8,4.2)
+        , col=rep(c("black","grey"),4)
+        , pch=19)
+segments (x0=c(0.8,1.2,1.8,2.2,2.8,3.2,3.8,4.2)
+          , x1=c(0.8,1.2,1.8,2.2,2.8,3.2,3.8,4.2)
+          , y0=means.cat+(sd.cat)^2
+          , y1=means.cat-(sd.cat)^2
+          , col=rep(c("black","grey"),4))
+
+# Risky poor
+mean (complete.ess$gincdif2bin[risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mean (complete.ess$gincdif2bin[risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+
+# Risky rich
+mean (complete.ess$gincdif2bin[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mean (complete.ess$gincdif2bin[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+
+#### Plot differences across risk/income groups and credit/no credit groups ####
+
+
 
 ########################################
 #### Bayesian mixed factor analysis #### 
@@ -643,7 +807,6 @@ fit.risk.rich <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
 summary(fit.risk.rich)
 
 
-fit.risk.poor <- lmer(gincdif2 ~ brwmny.std + risk.std + brwmny.std:risk.std
 fit.risk.poor <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
                       + male + agea + unemplindiv 
                       + eduyrs2 + mbtru2 + rlgdgr 
