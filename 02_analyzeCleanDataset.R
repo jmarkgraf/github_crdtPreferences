@@ -64,6 +64,15 @@ ess$agea <- ifelse(ess$agea > 120, NA, ess$agea)
 ess$h.owner <- ifelse(ess$hhmodwl >2, NA, ess$hhmodwl)
 ess$h.owner <- ifelse(ess$h.owner == 2, 0, 1)
 
+# recode perceived skill specificity
+ess$self_skillspec <- ifelse(ess$rpljbde >10, NA, ess$rpljbde)
+
+# recode marketability
+ess$self_marketability <- ifelse(ess$essround == 1, ess$smbtjob
+  , ifelse(ess$essround == 2, ess$smbtjoba, NA))
+ess$self_marketability <- ifelse(ess$self_marketability > 10
+  , NA, ess$self_marketability)
+
 unique(ess$gincdif2)
 unique(ess$male)
 hist(log(ess$perceqnatincdollar))
@@ -446,8 +455,8 @@ include.vars <- c("gincdif2bin","gincdif2","brwmny","male"
                   ,"eduyrs2","mbtru2","rlgdgr","socgdp","gdpc"
                   ,"gininet","epl","unempl"
                   ,"mainsample","incomeTER.TR","incomeQNT.TR"
-                  ,"incomeLOG","incomeQNT","incomeTER"
-                  ,"h.owner","socialorigin","essround"
+                  ,"incomeLOG","incomeQNT","incomeTER", "self_marketability"
+                  , "self_skillspec","h.owner","socialorigin","essround"
                   ,"risk","income","cntry.yr","dweight","country.year.isco")
 tmp <- complete.ess[,include.vars]
 tmp$log.income <- log(tmp$income)
@@ -889,7 +898,7 @@ fit.socialorigin <- lmer(gincdif2 ~ brwmny.std + socialorigin
   weights = dweight, data=tmp)
 summary(fit.socialorigin)
 
-# 1) wealth effects
+# 2) wealth effects
 fit.wealth <- lmer(gincdif2 ~ brwmny + h.owner
   + log.income + male + agea + unemplindiv 
   + eduyrs2 + mbtru2 + rlgdgr 
@@ -898,6 +907,7 @@ fit.wealth <- lmer(gincdif2 ~ brwmny + h.owner
   weights = dweight, data=tmp, subset = essround == 2)
 summary(fit.wealth)
 
+# 3) social network & wealth effects
 fit.robustFull <- lmer(gincdif2 ~ brwmny + h.owner + socialorigin
   + log.income + male + agea + unemplindiv 
   + eduyrs2 + mbtru2 + rlgdgr 
@@ -908,6 +918,34 @@ summary(fit.robustFull)
 
 # export findings
 stargazer(fit.socialorigin, fit.wealth, fit.robustFull)
+
+# 4) self-perceived labor market risk
+
+# check correlation between 'actual' and 'perceived' labour market risk
+cor.test(complete.ess$relskillspec, complete.ess$self_skillspec, use = "complete.obs")
+
+fit.selfRisk <- lmer(gincdif2 ~ brwmny * self_skillspec
+  + log.income + male + agea + unemplindiv 
+  + eduyrs2 + mbtru2 + rlgdgr 
+  + socgdp + log.gdpc
+  + (1 + brwmny * self_skillspec | cntry.yr)
+  , weights = dweight, data=tmp)
+summary(fit.selfRisk)
+## there seems to be no effect of **perceived** labor market risk on the effect of credit
+## this stands in contrast to **actual** labor market risk
+## direction of interaction as expected; main effect expected direction & significant
+
+# 5) perceived marketability
+fit.selfMrkt <- lmer(gincdif2 ~ brwmny * self_marketability
+  + log.income + male + agea + unemplindiv 
+  + eduyrs2 + mbtru2 + rlgdgr 
+  + socgdp + log.gdpc
+  + (1 + brwmny * self_marketability | cntry.yr)
+  , weights = dweight, data=tmp)
+summary(fit.selfMrkt)
+## model does not converge
+## there seems to be no effect of **perceived** marketability on the effect of credit
+## main effect as expected & significant; interaction: direction not as expected, not significant
 
 ###########################################################
 #### RUN REGRESSIONS BY "CNTRY.YR" and STORE ESTIMATES ####
