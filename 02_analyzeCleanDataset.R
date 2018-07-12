@@ -166,7 +166,7 @@ complete.ess$incomeTER <- relevel(as.factor(complete.ess$incomeTER), ref = 2)
 #### FACTOR ANALYSIS ####
 # Reduce dataset even further, to exclude observations with "wrong income"
 # The main risk measure that we use is a factor that excludes OUR
-AllFactor <- factanal (~rti2+relskillspec+offsh+Oeschroutine+offshwalt.fac.num 
+AllFactor <- factanal (~rti2+relskillspec+offsh+Oeschroutine+offshwalt.fac.num
                        , factors=1
                        , rotation="varimax"
                        , scores="regression"
@@ -310,36 +310,47 @@ mean(complete.ess$brwmnybin[riskless.poor==1], na.rm=T)
 
 #### Means and standard deviations ####
 # Risky rich
-mn.risky.rich.credit <- mean (complete.ess$gincdif2bin[risky.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-mn.risky.rich.no.credit <- mean (complete.ess$gincdif2bin[risky.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.risky.rich.credit <- sd (complete.ess$gincdif2bin[risky.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.risky.rich.no.credit <- sd (complete.ess$gincdif2bin[risky.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-ln.risky.rich.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & risky.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
-ln.risky.rich.no.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & risky.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+mn.risky.rich.credit <- mean (complete.ess$gincdif2[risky.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mn.risky.rich.no.credit <- mean (complete.ess$gincdif2[risky.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.risky.rich.credit <- sd (complete.ess$gincdif2[risky.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.risky.rich.no.credit <- sd (complete.ess$gincdif2[risky.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+ln.risky.rich.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & risky.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
+ln.risky.rich.no.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & risky.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
 
 # Riskless rich
-mn.riskless.rich.credit <- mean (complete.ess$gincdif2bin[riskless.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-mn.riskless.rich.no.credit <- mean (complete.ess$gincdif2bin[riskless.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.riskless.rich.credit <- sd (complete.ess$gincdif2bin[riskless.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.riskless.rich.no.credit <- sd (complete.ess$gincdif2bin[riskless.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-ln.riskless.rich.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & riskless.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
-ln.riskless.rich.no.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & riskless.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+mn.riskless.rich.credit <- mean (complete.ess$gincdif2[riskless.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mn.riskless.rich.no.credit <- mean (complete.ess$gincdif2[riskless.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.riskless.rich.credit <- sd (complete.ess$gincdif2[riskless.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.riskless.rich.no.credit <- sd (complete.ess$gincdif2[riskless.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+ln.riskless.rich.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & riskless.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
+ln.riskless.rich.no.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & riskless.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
 
 # Risky poor
-mn.risky.poor.credit <- mean (complete.ess$gincdif2bin[risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-mn.risky.poor.no.credit <- mean (complete.ess$gincdif2bin[risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.risky.poor.credit <- sd (complete.ess$gincdif2bin[risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.risky.poor.no.credit <- sd (complete.ess$gincdif2bin[risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-ln.risky.poor.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
-ln.risky.poor.no.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+mn.risky.poor.credit <- mean (complete.ess$gincdif2[risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mn.risky.poor.no.credit <- mean (complete.ess$gincdif2[risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.risky.poor.credit <- sd (complete.ess$gincdif2[risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.risky.poor.no.credit <- sd (complete.ess$gincdif2[risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+ln.risky.poor.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
+ln.risky.poor.no.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
 
 # Riskless poor
-mn.riskless.poor.credit <- mean (complete.ess$gincdif2bin[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-mn.riskless.poor.no.credit <- mean (complete.ess$gincdif2bin[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.riskless.poor.credit <- sd (complete.ess$gincdif2bin[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.riskless.poor.no.credit <- sd (complete.ess$gincdif2bin[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-ln.riskless.poor.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
-ln.riskless.poor.no.credit <- length (complete.ess$gincdif2bin[!is.na(complete.ess$gincdif2bin) & riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+mn.riskless.poor.credit <- mean (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mn.riskless.poor.no.credit <- mean (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.riskless.poor.credit <- sd (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.riskless.poor.no.credit <- sd (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+ln.riskless.poor.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
+ln.riskless.poor.no.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+
+# Poor vs rich
+mn.riskless.poor.credit <- mean (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mn.riskless.poor.no.credit <- mean (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.riskless.poor.credit <- sd (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+sd.riskless.poor.no.credit <- sd (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+ln.riskless.poor.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
+ln.riskless.poor.no.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+
+
+# High vs low risk
 
 means.cat <- c(mn.risky.rich.credit, mn.risky.rich.no.credit
   , mn.riskless.rich.credit, mn.riskless.rich.no.credit
@@ -934,6 +945,7 @@ summary(fit.selfRisk)
 ## there seems to be no effect of **perceived** labor market risk on the effect of credit
 ## this stands in contrast to **actual** labor market risk
 ## direction of interaction as expected; main effect expected direction & significant
+## model does not converge.
 
 # 5) perceived marketability
 fit.selfMrkt <- lmer(gincdif2 ~ brwmny * self_marketability
