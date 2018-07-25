@@ -742,7 +742,10 @@ tmp$risk.std <- (tmp$risk-mean(tmp$risk, na.rm=T))/sd(tmp$risk, na.rm=T)
 fit.risk <- lmer(gincdif2 ~ brwmny.std + risk.std + brwmny.std:risk.std
                      + male + agea + log.income.std
                      + unemplindiv
-                     + eduyrs2 + mbtru2
+                     + eduyrs2 + mbtru2+ rlgdgr 
+  + socgdp + log.gdpc
+  + (1 + brwmny | cntry.yr),
+  weights = dweight, na.action="na.omit", data=tmp)
 
 summary(fit.risk)
 
@@ -1334,18 +1337,19 @@ graphPath <- paste0(getwd (),"/Draft/draftMPSA/")
 
 # Plot country average support for redistribution
 tmp$cou <- substr(tmp$cntry.yr, start=1,stop=3)
-redist.cntry <- prop.table(table(tmp$cou, tmp$gincdif2), margin = 1)
+tmp <- merge(tmp, unique(ess[,c("cou", "coun")]), by = "cou")
+redist.cntry <- prop.table(table(tmp$coun, tmp$gincdif2), margin = 1)
 colnames(redist.cntry) <- c("strongly disagree", "disagree", "neither", "agree", "strongly agree")
 
 redist.cntry <- redist.cntry[order(redist.cntry[,5], redist.cntry[,4]),]
 
 pdf(paste0(graphPath, "redistByCntry.pdf"), h=5, w=7)
-par(mar = c(4, 2, 0, 0))
+par(mar = c(4, 4, 0, 0))
 barplot(as.matrix(t(redist.cntry)), horiz = T, cex.names = 0.5, axes = F, las = 2)
 par(fig = c(0, 1, 0, 1), oma = c(0,0,6,0), mar = c(0, 0, 0, 0), new = TRUE)
 legend("bottom", colnames(redist.cntry), xpd=T, horiz = F
   , fill = gray.colors(5)
-  , ncol = 5, cex = 0.8, bty ="n")
+  , ncol = 5, cex = 0.7, bty ="n")
 dev.off()
 
 # Credit Access by Year (Appendix Table)
