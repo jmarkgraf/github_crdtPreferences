@@ -1352,6 +1352,32 @@ legend("bottom", colnames(redist.cntry), xpd=T, horiz = F
   , ncol = 5, cex = 0.7, bty ="n")
 dev.off()
 
+# Credit Access-Fin Depth (Appendix Figure)
+crdt2gdp <- read_excel("~/Dropbox/aftermathCrisis/Data/FinStructure_2016.xlsx", sheet = 3)[,c("cncode","year","pcrdbgdp")]
+tmp <- ddply(tmp,.(cntry.yr),transform,m.brwmny = mean(brwmny, na.rm = T))
+tmp$year <- ifelse(tmp$essround ==1, 2002
+  , ifelse(tmp$essround== 2, 2004
+    , ifelse(tmp$essround==3, 2006
+      ,ifelse(tmp$essround==4,2008, 2010))))
+
+tmp <- merge(tmp, crdt2gdp, by.x=c("cou","year"), by.y= c("cncode", "year"))
+
+data <- unique(tmp[,c("pcrdbgdp", "m.brwmny", "cntry.yr")])
+reg <- lm(m.brwmny ~ pcrdbgdp, data = data)
+newx = seq(min(data$pcrdbgdp, na.rm= T),max(data$pcrdbgdp, na.rm= T),by = 0.05)
+conf_interval <- predict(reg, newdata=data.frame(pcrdbgdp=newx), interval="confidence",
+  level = 0.95)
+
+pdf(paste0(graphPath, "CorrCreditFindepth.pdf"), h=5, w=7)
+plot(data$pcrdbgdp, data$m.brwmny, type = "p", axes = F,
+  ylab = "Mean Reported Access to Credit", xlab = "Bank Credit to GDP (%)", 
+  ylim = c(0,5), xlim = c(0,220), pch="+")
+axis(2, seq(0,5,0.5))
+axis(1, seq(0,200, 50), pos =0)
+abline(reg)
+matlines(newx, conf_interval[,2:3], col = "blue", lty=2)
+dev.off()
+
 # Credit Access by Year (Appendix Table)
 tmp$crdt <- ifelse(tmp$brwmny == 4 | tmp$brwmny == 5, 1
   , ifelse(tmp$brwmny >= 1 & tmp$brwmny <= 3, 0, NA))
