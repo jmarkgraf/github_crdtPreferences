@@ -36,6 +36,7 @@ library (parallel)
 library (readstata13)
 library (interplot)  # to plot interaction effects
 library (mice)
+library (openxlsx)
 
 # set wd
 possibles <- c("~/Dropbox/CreditPreferences/")
@@ -100,254 +101,324 @@ ess$oesch2b <- ifelse ((ess$iscoco >= 1 & ess$iscoco <= 100) |
                        ifelse (ess$iscoco>=60000, NA, 0))
 
 ess$Oeschroutine <- ifelse (ess$oesch2a==1 | ess$oesch2b==1, 1, 0)
-ess$rti2 <- ifelse ( ess$iscoco2==61 | ess$iscoco2==62 | ess$iscoco2==92, 0.89,
-                     ifelse (ess$iscoco2==11 | ess$iscoco2==23 | ess$iscoco2==33, -0.68,
-                             ess$rti))
    
 # Model to build latent risk variables 
-complete.ess <- ess[!is.na(ess$iscoco2),]
-
-# allRisk <- c("rti2", "our", "relskillspec", "Oeschroutine")
-# offShoreRisk <- c("offshwalt","offsh")
-# omitObs <- as.numeric (attr (na.omit (complete.ess[,c(allRisk, offShoreRisk)])
-#                              , "na.action"))
-
-# allRisk.PC <- princomp(complete.ess[-omitObs,allRisk])
-# offShoreRisk.PC <- princomp(complete.ess[-omitObs,offShoreRisk])
-# round (cor (cbind (allRisk.PC$scores[,1], offShoreRisk.PC$scores[,1], complete.ess[-omitObs,c(allRisk,offShoreRisk)])), 2)
-
-# # Including all variables
-# Risk.PC  <- princomp(complete.ess[-omitObs, c(allRisk,offShoreRisk)])
-# round (cor (cbind (Risk.PC$scores[,1], Risk.PC$scores[,2], complete.ess[-omitObs,c(allRisk,offShoreRisk)])), 2)
-
-# # Excluding offshwalt
-# Risk.PC  <- princomp(complete.ess[-omitObs, c(allRisk,"offsh")])
-# round (cor (cbind (Risk.PC$scores[,1], Risk.PC$scores[,2], complete.ess[-omitObs,c(allRisk,offShoreRisk)])), 2)
-
-#### MCMC mixed factor analysis ###
-# Turn ordinal variables into ordered factors
-complete.ess$Oeschroutine.fac <- as.ordered (complete.ess$Oeschroutine)
-complete.ess$offshwalt.fac <- as.ordered (cut(complete.ess$offshwalt, c(-5,20,40,60,80,100)))
-levels (complete.ess$offshwalt.fac) <- c("1","2","3","4","5")
-complete.ess$offshwalt.fac.num <- as.numeric (complete.ess$offshwalt.fac)
-
-complete.ess <- complete.ess[is.na(complete.ess$wrongincome) | 
-                                complete.ess$wrongincome==0,]
+ess$complete.iscoco2 <- ifelse (!is.na(ess$iscoco2), 1, 0)
 
 
-#####################################
-#### Analysis by income category ####
-#####################################
+# Which individuals are dropped? 
+no.dropped <- unlist (by (ess$iscoco2, ess$cntry.yr, function (x) { sum(is.na(x)) }))
+no.total   <- unlist (by (ess$iscoco2, ess$cntry.yr, length))
 
-# T&R then use their relative measure of income and compare low income (50 percentile - sd)
-quantile(complete.ess$perceqnatincdollar, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm =T) # p50 = 0.83
-sd(complete.ess$perceqnatincdollar, na.rm =T) # sd = 0.74
+# Compare that dropped and kept are similar along important characteristics in the various surveys
+inspect <- ddply (ess, .(complete.iscoco2), summarise
+                  , access.money=mean (brwmny, na.rm=T)
+                  , age=mean (agea, na.rm=T)
+                  , male.gender=mean (male, na.rm=T)
+                  , income=mean (income, na.rm=T)
+                  , education=mean (eduyrs2, na.rm=T)
+                  , unionized=mean (mbtru2, na.rm=T)
+                  , unemployed=mean (unemplindiv, na.rm=T)
+                  , religion=mean (rlgdgr, na.rm=T))
 
-# high income: perceqnatincdollar = 1.57; low income: perceqnatincdollar = 0.09
-complete.ess$incomeTER.TR <- ifelse(complete.ess$perceqnatincdollar > 1.57, "High"
-                                    , ifelse(complete.ess$perceqnatincdollar < 0.09, "Low", "Middle"))
+# Turn ordinal variables into ordered factors for risk measure
+ess$offshwalt <- ifelse (ess$offshwalt==0, NA, ess$offshwalt)
+ess$Oeschroutine.fac <- as.ordered (ess$Oeschroutine)
+
+# Some variables need to be rescaled
+include.vars <- c("gincdif2bin","gincdif2","brwmny","male"
+                  ,"agea","unemplindiv"
+                  ,"socgdp","gdpc","gininet","epl","unempl"
+                  ,"h.owner","self_marketability","self_skillspec","mainsample"
+                  ,"eduyrs2","mbtru2","rlgdgr"
+                  ,"iscoco","socialorigin","essround"
+                  ,"income","cntry.yr","dweight"
+                  ,"cou","year")
 
 
-# generate quintile groups for income by cntr.yr pair
-complete.ess$incomeQNT.TR <- ntile(complete.ess$perceqnatincdollar, 5)
-complete.ess$incomeQNT.TR <- relevel(as.factor(complete.ess$incomeQNT.TR), ref = 3)
-complete.ess$incomeLOG <- log(complete.ess$perceqnatincdollar)
-
-# generate quintile groups for income by cntr.yr pair
-complete.ess <- ddply(complete.ess, .(cntry.yr), mutate, incomeQNT = ntile(income, 5))
-complete.ess$incomeQNT <- relevel(as.factor(complete.ess$incomeQNT), ref = 3)
-
-# generate tertile groups for income by cntry.yr pair
-complete.ess <- ddply(complete.ess, .(cntry.yr), mutate, incomeTER = ntile(income, 3))
-complete.ess$incomeTER <- relevel(as.factor(complete.ess$incomeTER), ref = 2)
+tempData <- ess[is.na(ess$wrongincome) | ess$wrongincome==0, include.vars] # drop 11 observations with weird income figures
+tempData$iscoco <- ifelse (tempData$iscoco>10000, NA, tempData$iscoco)
 
 
+############################
+############################
+############################
+############################
+############################
+#######do not impute iscoco   
+############################
+############################
+############################
+############################
+############################
+############################
+############################
+
+
+
+#### Multiple imputation using Amelia ####
+## Running the next step takes a couple hours
+# completeData <- amelia (tempData, m=5
+#                         , idvars=c("cntry.yr","essround")  ## ADD countryLevelVars <- c("socgdp","gdpc","gininet","epl","unempl")
+
+#                         , cs="cou", ts="year"
+#                         , log=c("income")
+#                         , noms=c("gincdif2bin","male","unemplindiv","mbtru2","iscoco")
+#                         , ords=c("gincdif2","brwmny","rlgdgr","socialorigin"))
+
+# save (completeData, file="~/Dropbox/CreditPreferences/Data/miESS.Rda")
+load (file="~/Dropbox/CreditPreferences/Data/miESS.Rda")
+
+## Set all five MI-datasets in a list
+completeData <- list(completeData$imputations[[1]],
+                   completeData$imputations[[2]],
+                   completeData$imputations[[3]],
+                   completeData$imputations[[4]],
+                   completeData$imputations[[5]])
+
+rebuildISCOCO2 <- function (x) {
+   x <- as.character (x)
+   tmp <- as.numeric (gsub('.{2}$', '', x))
+   return (tmp)
+}
+
+for (i in 1:5){
+   completeData[[i]]$iscoco2 <- rebuildISCOCO2 (completeData[[1]]$iscoco)
+}
+
+#### Reconstruct risk measures following Rueda-Thewissen ####
+# Import correspondence table
+riskCorrespondenceTable <- read.xlsx("~/Dropbox/CreditPreferences/Data/riskData/risk_correspondence.xlsx", sheet=1)
+
+# Check that isco codes in riskCorrespondenceTable appear in completeData
+riskCorrespondenceTable$isco[!is.element (riskCorrespondenceTable$isco, completeData[[1]]$iscoco)]
+completeData[[1]]$iscoco[!is.element (completeData[[1]]$iscoco, riskCorrespondenceTable$isco)]
+# all good!
+
+# we end up with 20K+ missing values in rti and offsh
+for (i in 1:5){
+   completeData[[i]] <- merge (completeData[[i]], riskCorrespondenceTable
+                 , by.x="iscoco", by.y="isco", all.x=TRUE)
+}
 
 #### FACTOR ANALYSIS ####
-# Reduce dataset even further, to exclude observations with "wrong income"
 # The main risk measure that we use is a factor that excludes OUR
-AllFactor <- factanal (~rti2+relskillspec+offsh+Oeschroutine+offshwalt.fac.num
-                       , factors=1
-                       , rotation="varimax"
-                       , scores="regression"
-                       , na.action=na.exclude
-                       , data=complete.ess)
+for (i in 1:5){
+   
+   completeData[[i]]$rti2 <- ifelse ( completeData[[i]]$iscoco2==61 | completeData[[i]]$iscoco2==62 | completeData[[i]]$iscoco2==92, 0.89,
+                        ifelse (completeData[[i]]$iscoco2==11 | completeData[[i]]$iscoco2==23 | completeData[[i]]$iscoco2==33, -0.68,
+                                completeData[[i]]$rti))
+   completeData[[i]]$offshwalt.fac <- as.ordered (cut(completeData[[i]]$offshwalt, c(-5,20,40,60,80,100)))
+   levels (completeData[[i]]$offshwalt.fac) <- c("1","2","3","4","5")
+   completeData[[i]]$offshwalt.fac.num <- as.numeric (completeData[[i]]$offshwalt.fac)
+   
+   AllFactor <- factanal (~rti2+relskillspec+offsh+Oeschroutine+offshwalt.fac.num
+                          , factors=1
+                          , rotation="varimax"
+                          , scores="regression"
+                          , na.action=na.exclude
+                          , data=completeData[[i]])
+   
+   AllFactor$loadings
+   completeData[[i]]$risk <- AllFactor$scores
+}
 
-AllFactor$loadings
-factor.scores <- AllFactor$scores
 
+## legacy code from when we imputed "risk" measures before running factor analysis
+## Can be safely ignored
 # Notation follows factanal help
 # Useful math help from https://stats.stackexchange.com/questions/126885/methods-to-compute-factor-scores-and-what-is-the-score-coefficient-matrix-in
-Lambda <- AllFactor$loadings
-Phi    <- diag(AllFactor$uniquenesses)
-Sigma <- Lambda %*% t(Lambda) + Phi
-predictors <- complete.ess[,c("rti2","relskillspec","offsh","Oeschroutine","offshwalt.fac.num")]
-std.predictors <- apply (predictors, 2, function(x) (x-mean(x, na.rm=T))/sd(x, na.rm=T))
-corrMatrix <- AllFactor$correlation # similar to cor (predictors, use="p")
-
-regression.scores <- std.predictors %*% Lambda  # These are easiest 
-thompson.scores   <- std.predictors %*% solve (corrMatrix) %*% Lambda # This is what R does
-bartlett.scores   <- std.predictors %*% t(solve (t(Lambda) %*% Phi %*% Lambda) %*% t(Lambda) %*% solve (Phi)) # correlate almost perfectly with thompson
+# Lambda <- AllFactor$loadings
+# Phi    <- diag(AllFactor$uniquenesses)
+# Sigma <- Lambda %*% t(Lambda) + Phi
+# predictors <- complete.ess[,c("rti2","relskillspec","offsh","Oeschroutine","offshwalt.fac.num")]
+# std.predictors <- apply (predictors, 2, function(x) (x-mean(x, na.rm=T))/sd(x, na.rm=T))
+# corrMatrix <- AllFactor$correlation # similar to cor (predictors, use="p")
+# 
+# regression.scores <- std.predictors %*% Lambda  # These are easiest 
+# thompson.scores   <- std.predictors %*% solve (corrMatrix) %*% Lambda # This is what R does
+# bartlett.scores   <- std.predictors %*% t(solve (t(Lambda) %*% Phi %*% Lambda) %*% t(Lambda) %*% solve (Phi)) # correlate almost perfectly with thompson
 
 # To fill in factor scores for all observations, even those with some missing values,
 # we use as a predictor matrix a patched std.predictor matrix where NAs are substituted
 # by column means (i.e., 0).
 
-# First, we need to distinguish between units without any observed predictors,
-# and units with some observed predictors
-num.Missing <- apply (std.predictors, 1, function (x) sum (is.na(x)))
-allMissing <- ifelse (num.Missing==5, 1, 0)
-
-## Do not need to run multiple imputation again, if
-## file in line 199 is re-loaded
-# # Multiple imputation of observations that have at least one (1) "risk" measure
-# mi.predictors <- mice (predictors[allMissing==0,], m=1
-#                        , method=c("pmm","pmm","pmm","logreg","polr"))
-# mi.predictors <- complete (mi.predictors)
-# save (mi.predictors, file="~/Dropbox/CreditPreferences/Data/riskPCdata/riskPC.Rda")
-load (file="~/Dropbox/CreditPreferences/Data/riskPCdata/riskPC.Rda")
+# # First, we need to distinguish between units without any observed predictors,
+# # and units with some observed predictors
+# num.Missing <- apply (std.predictors, 1, function (x) sum (is.na(x)))
+# allMissing <- ifelse (num.Missing==5, 1, 0)
+# 
+# ## Do not need to run multiple imputation again, if
+# ## file in line 199 is re-loaded
+# # # Multiple imputation of observations that have at least one (1) "risk" measure
+# # mi.predictors <- mice (predictors[allMissing==0,], m=1
+# #                        , method=c("pmm","pmm","pmm","logreg","polr"))
+# # mi.predictors <- complete (mi.predictors)
+# # save (mi.predictors, file="~/Dropbox/CreditPreferences/Data/riskPCdata/riskPC.Rda")
+# load (file="~/Dropbox/CreditPreferences/Data/riskPCdata/riskPC.Rda")
 
 # rownames (mi.predictors) <- rownames(std.predictors)[allMissing==0]
 
-# Standardize multiply-imputed predictors (to construct factanal scores)
-std.mi.predictors <- apply (mi.predictors, 2, function(x) (x-mean(x, na.rm=T))/sd(x, na.rm=T))
+# # Standardize multiply-imputed predictors (to construct factanal scores)
+# std.mi.predictors <- apply (mi.predictors, 2, function(x) (x-mean(x, na.rm=T))/sd(x, na.rm=T))
+# 
+# # Create Thompson scores (same as factanal "regression" option)
+# thompson.scores.all <- std.mi.predictors %*% solve (corrMatrix) %*% Lambda  
+# complete.ess$risk <- thompson.scores.all
 
-# Create Thompson scores (same as factanal "regression" option)
-thompson.scores.all <- std.mi.predictors %*% solve (corrMatrix) %*% Lambda  
-complete.ess$risk <- thompson.scores.all
-
-pdf (paste0 (graphicsPath, "RiskHistogram.pdf"), h=5, w=7)
+# pdf (paste0 (graphicsPath, "RiskHistogram.pdf"), h=5, w=7)
 par (mar=c(4,4,1,1))
-hist (complete.ess$risk, main="", xlab="Relative risk of losing job")
-dev.off()
+hist (completeData[[5]]$risk, main="", xlab="Relative risk of losing job")
+# dev.off()
+
+#####################################
+#### Analysis by income category ####
+#####################################
+
+## Create a few income categories that will be used later
+for (i in 1:5) {
+   # generate quintile groups for income by cntr.yr pair
+   completeData[[i]] <- ddply(completeData[[i]], .(cntry.yr), mutate, incomeQNT = ntile(income, 5))
+   completeData[[i]]$incomeQNT <- relevel(as.factor(completeData[[i]]$incomeQNT), ref = 3)
+   
+   # generate tertile groups for income by cntry.yr pair
+   completeData[[i]] <- ddply(completeData[[i]], .(cntry.yr), mutate, incomeTER = ntile(income, 3))
+   completeData[[i]]$incomeTER <- relevel(as.factor(completeData[[i]]$incomeTER), ref = 2)
+}
+
+
 
 #### Create risk/income groups ####
-risky.rich <- ifelse (complete.ess$risk > 0 
-                      & complete.ess$incomeTER==3
-                      & !is.na(complete.ess$incomeTER), 1, 0)
-riskless.rich <- ifelse (complete.ess$risk < 0 
-                      & complete.ess$incomeTER==3
-                      & !is.na(complete.ess$incomeTER), 1, 0)
-risky.poor <- ifelse (complete.ess$risk > 0 
-                      & complete.ess$incomeTER==1
-                      & !is.na(complete.ess$incomeTER), 1, 0)
-riskless.poor <- ifelse (complete.ess$risk < 0 
-                      & complete.ess$incomeTER==1
-                      & !is.na(complete.ess$incomeTER), 1, 0)
+for (i in 1:5){
+   completeData[[i]]$risky.rich <- ifelse (completeData[[i]]$risk > 0 
+                         & !is.na(completeData[[i]]$risk)
+                         & completeData[[i]]$incomeTER==3
+                         & !is.na(completeData[[i]]$incomeTER), 1, 0)
+   completeData[[i]]$riskless.rich <- ifelse (completeData[[i]]$risk < 0
+                            & !is.na(completeData[[i]]$risk) 
+                            & completeData[[i]]$incomeTER==3
+                            & !is.na(completeData[[i]]$incomeTER), 1, 0)
+   completeData[[i]]$risky.poor <- ifelse (completeData[[i]]$risk > 0
+                         & !is.na(completeData[[i]]$risk)
+                         & completeData[[i]]$incomeTER==1
+                         & !is.na(completeData[[i]]$incomeTER), 1, 0)
+   completeData[[i]]$riskless.poor <- ifelse (completeData[[i]]$risk < 0
+                            & !is.na(completeData[[i]]$risk)
+                            & completeData[[i]]$incomeTER==1
+                            & !is.na(completeData[[i]]$incomeTER), 1, 0)
+}
 
 #### Distribution of preference for redistribution among risk/income groups ####
 par (mfrow=c(2,2), mar=c(3,3,1,1))
-hist (complete.ess$gincdif2[risky.rich==1]
-      , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
+i=3
+hist (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1]
+      , breaks=seq(0.5,5.5,by=1), ylim=c(0,20000)
       , main="Risky rich")
-hist (complete.ess$gincdif2[risky.poor==1]
-      , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
+hist (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1]
+      , breaks=seq(0.5,5.5,by=1), ylim=c(0,20000)
       , main="Risky poor")
-hist (complete.ess$gincdif2[riskless.rich==1]
-      , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
+hist (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1]
+      , breaks=seq(0.5,5.5,by=1), ylim=c(0,20000)
       , main="Riskless rich")
-hist (complete.ess$gincdif2[riskless.poor==1]
-      , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
+hist (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1]
+      , breaks=seq(0.5,5.5,by=1), ylim=c(0,20000)
       , main="Riskless poor")
 
 
 
 par (mfrow=c(2,2), mar=c(3,3,1,1))
-hist (complete.ess$gincdif2bin[risky.rich==1]
-      , ylim=c(0,30000)
+hist (completeData[[i]]$gincdif2bin[completeData[[i]]$risky.rich==1]
+      , ylim=c(0,40000)
       , main="Risky rich")
-hist (complete.ess$gincdif2bin[risky.poor==1]
-      , ylim=c(0,30000)
+hist (completeData[[i]]$gincdif2bin[completeData[[i]]$risky.poor==1]
+      , ylim=c(0,40000)
       , main="Risky poor")
-hist (complete.ess$gincdif2bin[riskless.rich==1]
-      , ylim=c(0,30000)
+hist (completeData[[i]]$gincdif2bin[completeData[[i]]$riskless.rich==1]
+      , ylim=c(0,40000)
       , main="Riskless rich")
-hist (complete.ess$gincdif2bin[riskless.poor==1]
-      , ylim=c(0,30000)
+hist (completeData[[i]]$gincdif2bin[completeData[[i]]$riskless.poor==1]
+      , ylim=c(0,40000)
       , main="Riskless poor")
 
 print ("risky rich")
-length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==0 & risky.rich==1])/length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==1 & risky.rich==1])
+length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==0 & completeData[[i]]$risky.rich==1])/length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==1 & completeData[[i]]$risky.rich==1])
 print ("riskless rich")
-length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==0 & riskless.rich==1])/length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==1 & riskless.rich==1])
+length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==0 & completeData[[i]]$riskless.rich==1])/length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==1 & completeData[[i]]$riskless.rich==1])
 print ("risky poor")
-length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==0 & risky.poor==1])/length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==1 & risky.poor==1])
+length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==0 & completeData[[i]]$risky.poor==1])/length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==1 & completeData[[i]]$risky.poor==1])
 print ("riskless poor")
-length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==0 & riskless.poor==1])/length(complete.ess$gincdif2bin[complete.ess$gincdif2bin==1 & riskless.poor==1])
+length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==0 & completeData[[i]]$riskless.poor==1])/length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==1 & completeData[[i]]$riskless.poor==1])
 
 
 #### Distribution of access to credit among risk/income groups ####
 par (mfrow=c(2,2), mar=c(3,3,1,1))
-hist (complete.ess$brwmny[risky.rich==1]
+hist (completeData[[i]]$brwmny[completeData[[i]]$risky.rich==1]
       , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
       , main="Risky rich")
-hist (complete.ess$brwmny[risky.poor==1]
+hist (completeData[[i]]$brwmny[completeData[[i]]$risky.poor==1]
       , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
       , main="Risky poor")
-hist (complete.ess$brwmny[riskless.rich==1]
+hist (completeData[[i]]$brwmny[completeData[[i]]$riskless.rich==1]
       , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
       , main="Riskless rich")
-hist (complete.ess$brwmny[riskless.poor==1]
+hist (completeData[[i]]$brwmny[completeData[[i]]$riskless.poor==1]
       , breaks=seq(0.5,5.5,by=1), ylim=c(0,14000)
       , main="Riskless poor")
 
 #### Create dichotomous brwmny ####
-complete.ess$brwmnybin <- ifelse (complete.ess$brwmny <= 3 & !is.na(complete.ess$brwmny), 0
-                                  , ifelse (complete.ess$brwmny > 3 & !is.na(complete.ess$brwmny), 1, NA))
+completeData[[i]]$brwmnybin <- ifelse (completeData[[i]]$brwmny <= 3 & !is.na(completeData[[i]]$brwmny), 0
+                                  , ifelse (completeData[[i]]$brwmny > 3 & !is.na(completeData[[i]]$brwmny), 1, NA))
 
 print ("risky rich")
-mean(complete.ess$brwmnybin[risky.rich==1], na.rm=T)
+mean(completeData[[i]]$brwmnybin[completeData[[i]]$risky.rich==1], na.rm=T)
 print ("riskless rich")
-mean(complete.ess$brwmnybin[riskless.rich==1], na.rm=T)
+mean(completeData[[i]]$brwmnybin[completeData[[i]]$riskless.rich==1], na.rm=T)
 print ("risky poor")
-mean(complete.ess$brwmnybin[risky.poor==1], na.rm=T)
+mean(completeData[[i]]$brwmnybin[completeData[[i]]$risky.poor==1], na.rm=T)
 print ("riskless poor")
-mean(complete.ess$brwmnybin[riskless.poor==1], na.rm=T)
-
-
-
+mean(completeData[[i]]$brwmnybin[completeData[[i]]$riskless.poor==1], na.rm=T)
 
 
 #### Means and standard deviations ####
 # Risky rich
-mn.risky.rich.credit <- mean (complete.ess$gincdif2[risky.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-mn.risky.rich.no.credit <- mean (complete.ess$gincdif2[risky.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.risky.rich.credit <- sd (complete.ess$gincdif2[risky.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.risky.rich.no.credit <- sd (complete.ess$gincdif2[risky.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-ln.risky.rich.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & risky.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
-ln.risky.rich.no.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & risky.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+mn.risky.rich.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+mn.risky.rich.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+sd.risky.rich.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+sd.risky.rich.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+ln.risky.rich.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
+ln.risky.rich.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
 
 # Riskless rich
-mn.riskless.rich.credit <- mean (complete.ess$gincdif2[riskless.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-mn.riskless.rich.no.credit <- mean (complete.ess$gincdif2[riskless.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.riskless.rich.credit <- sd (complete.ess$gincdif2[riskless.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.riskless.rich.no.credit <- sd (complete.ess$gincdif2[riskless.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-ln.riskless.rich.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & riskless.rich==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
-ln.riskless.rich.no.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & riskless.rich==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+mn.riskless.rich.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+mn.riskless.rich.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+sd.riskless.rich.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+sd.riskless.rich.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+ln.riskless.rich.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
+ln.riskless.rich.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
 
 # Risky poor
-mn.risky.poor.credit <- mean (complete.ess$gincdif2[risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-mn.risky.poor.no.credit <- mean (complete.ess$gincdif2[risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.risky.poor.credit <- sd (complete.ess$gincdif2[risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.risky.poor.no.credit <- sd (complete.ess$gincdif2[risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-ln.risky.poor.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
-ln.risky.poor.no.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+mn.risky.poor.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+mn.risky.poor.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+sd.risky.poor.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+sd.risky.poor.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+ln.risky.poor.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
+ln.risky.poor.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
 
 # Riskless poor
-mn.riskless.poor.credit <- mean (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-mn.riskless.poor.no.credit <- mean (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.riskless.poor.credit <- sd (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.riskless.poor.no.credit <- sd (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-ln.riskless.poor.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
-ln.riskless.poor.no.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+mn.riskless.poor.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+mn.riskless.poor.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+sd.riskless.poor.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+sd.riskless.poor.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+ln.riskless.poor.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
+ln.riskless.poor.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
 
 # Poor vs rich
-mn.riskless.poor.credit <- mean (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-mn.riskless.poor.no.credit <- mean (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.riskless.poor.credit <- sd (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-sd.riskless.poor.no.credit <- sd (complete.ess$gincdif2[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-ln.riskless.poor.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)])
-ln.riskless.poor.no.credit <- length (complete.ess$gincdif2[!is.na(complete.ess$gincdif2bin) & riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)])
+mn.riskless.poor.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+mn.riskless.poor.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+sd.riskless.poor.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+sd.riskless.poor.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+ln.riskless.poor.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
+ln.riskless.poor.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
 
 
 # High vs low risk
@@ -380,12 +451,12 @@ segments (x0=c(0.8,1.2,1.8,2.2,2.8,3.2,3.8,4.2)
           , col=rep(c("black","grey"),4))
 
 # Risky poor
-mean (complete.ess$gincdif2bin[risky.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-mean (complete.ess$gincdif2bin[risky.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mean (completeData[[i]]$gincdif2bin[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+mean (completeData[[i]]$gincdif2bin[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
 
 # Risky rich
-mean (complete.ess$gincdif2bin[riskless.poor==1 & complete.ess$brwmnybin==1 & !is.na(complete.ess$brwmnybin)], na.rm=T)
-mean (complete.ess$gincdif2bin[riskless.poor==1 & complete.ess$brwmnybin==0 & !is.na(complete.ess$brwmnybin)], na.rm=T)
+mean (completeData[[i]]$gincdif2bin[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+mean (completeData[[i]]$gincdif2bin[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
 
 #### Plot differences across risk/income groups and credit/no credit groups ####
 
@@ -465,7 +536,7 @@ include.vars <- c("gincdif2bin","gincdif2","brwmny","male"
                   ,"agea","unemplindiv","perceqnatincdollar"
                   ,"eduyrs2","mbtru2","rlgdgr","socgdp","gdpc"
                   ,"gininet","epl","unempl"
-                  ,"mainsample","incomeTER.TR","incomeQNT.TR"
+                  ,"mainsample"
                   ,"incomeLOG","incomeQNT","incomeTER", "self_marketability"
                   , "self_skillspec","h.owner","socialorigin","essround"
                   ,"risk","income","cntry.yr","dweight","country.year.isco")
@@ -477,6 +548,8 @@ colnames(tmp)[grep("incomeLOG", colnames(tmp))] <- "log.perceqnatincdollar"
 vars2rescale <- c("agea","eduyrs2","socgdp"
                   ,"gininet")  #,"log.perceqnatincdollar"
                   #,"log.income","log.gdpc")
+
+###### PAY ATTENTION TO STANDARDIZING/RESCALING VARIABLES
 
 # The following function can be included inside lmer to rescale
 rescale.var <- function (x) {
@@ -490,6 +563,11 @@ for (i in 1:length (vars2rescale)) {
 }
 
 #### MODELS ####
+#fit.baseline, fit.gini, fit.income, fit.riskmacro, fit.risk.std
+
+
+###### CAN WE ADD ROBUST STANDARD ERRORS AT SURVEY LEVEL
+
 # Baseline model
 fit.baseline <- lmer(gincdif2 ~ brwmny
   + log.income + male + agea + unemplindiv 
