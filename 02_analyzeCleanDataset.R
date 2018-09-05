@@ -23,6 +23,7 @@ library(doBy)  # summary statistics
 library(DataCombine)  # to calculate percentage change
 library(zoo)  # to interpolate gini values
 library(lme4)  # to estimate multilevel models
+library(merTools) # to combine multiple-imputation
 #library(sjPlot)  # to predict probabilities for models
 library(effects)  # to plot MLM effects
 library(arm)  # to use 'se.ranef' for extracting standard error from hierarchical model
@@ -85,23 +86,6 @@ ess$cntry.yr <- paste0(ess$cou, ess$year)
 
 ess$country.year.isco <- paste0 (ess$cou, ess$year, ess$iscoco2)
 
-ess$oesch2a <- ifelse (ess$iscoco>=60000, NA, 
-                       ifelse ((ess$iscoco >= 3430 & ess$iscoco <= 3431) |
-                          (ess$iscoco >= 4000 & ess$iscoco <= 4195) |
-                          (ess$iscoco >= 4210 & ess$iscoco <= 4215) |
-                           ess$iscoco == 4223, 1, 0))
-
-ess$oesch2b <- ifelse ((ess$iscoco >= 1 & ess$iscoco <= 100) |
-                          (ess$iscoco >= 6100 & ess$iscoco <= 7113) |
-                          (ess$iscoco >= 7200 & ess$iscoco <= 8290) |
-                          (ess$iscoco >= 9000 & ess$iscoco <= 9001) |
-                          (ess$iscoco >= 9150 & ess$iscoco <= 9151) |
-                          (ess$iscoco >= 9153 & ess$iscoco <= 9161) |
-                          (ess$iscoco >= 9200 & ess$iscoco <= 9311), 1, 
-                       ifelse (ess$iscoco>=60000, NA, 0))
-
-ess$Oeschroutine <- ifelse (ess$oesch2a==1 | ess$oesch2b==1, 1, 0)
-   
 # Model to build latent risk variables 
 ess$complete.iscoco2 <- ifelse (!is.na(ess$iscoco2), 1, 0)
 
@@ -110,9 +94,11 @@ ess$complete.iscoco2 <- ifelse (!is.na(ess$iscoco2), 1, 0)
 no.dropped <- unlist (by (ess$iscoco2, ess$cntry.yr, function (x) { sum(is.na(x)) }))
 no.total   <- unlist (by (ess$iscoco2, ess$cntry.yr, length))
 
+## This is the problem with dropping the observations that Thewissen and Rueda drop
 # Compare that dropped and kept are similar along important characteristics in the various surveys
 inspect <- ddply (ess, .(complete.iscoco2), summarise
-                  , access.money=mean (brwmny, na.rm=T)
+                  , redistribution.preference=mean (gincdif2, na.rm=T)
+                  , access.credit=mean (brwmny, na.rm=T)
                   , age=mean (agea, na.rm=T)
                   , male.gender=mean (male, na.rm=T)
                   , income=mean (income, na.rm=T)
@@ -121,11 +107,23 @@ inspect <- ddply (ess, .(complete.iscoco2), summarise
                   , unemployed=mean (unemplindiv, na.rm=T)
                   , religion=mean (rlgdgr, na.rm=T))
 
+inspect.se <- ddply (ess, .(complete.iscoco2), summarise
+                  , redistribution.preference=sd (gincdif2, na.rm=T)
+                  , access.credit=sd (brwmny, na.rm=T)
+                  , age=sd (agea, na.rm=T)
+                  , male.gender=sd (male, na.rm=T)
+                  , income=sd (income, na.rm=T)
+                  , education=sd (eduyrs2, na.rm=T)
+                  , unionized=sd (mbtru2, na.rm=T)
+                  , unemployed=sd (unemplindiv, na.rm=T)
+                  , religion=sd (rlgdgr, na.rm=T))
+
+print (round (rbind (inspect, inspect.se), 2))
+
 # Turn ordinal variables into ordered factors for risk measure
 ess$offshwalt <- ifelse (ess$offshwalt==0, NA, ess$offshwalt)
-ess$Oeschroutine.fac <- as.ordered (ess$Oeschroutine)
 
-# Some variables need to be rescaled
+# Variables collected for imputation
 include.vars <- c("gincdif2bin","gincdif2","brwmny","male"
                   ,"agea","unemplindiv"
                   ,"socgdp","gdpc","gininet","epl","unempl"
@@ -136,45 +134,101 @@ include.vars <- c("gincdif2bin","gincdif2","brwmny","male"
                   ,"cou","year")
 
 
-tempData <- ess[is.na(ess$wrongincome) | ess$wrongincome==0, include.vars] # drop 11 observations with weird income figures
+tempData <- ess[is.na(ess$wrongincome) | ess$wrongincome==0, include.vars] 
+# drop 11 observations with weird income figures, as suggested by Thewissen-Rueda
 tempData$iscoco <- ifelse (tempData$iscoco>10000, NA, tempData$iscoco)
 
-
-############################
-############################
-############################
-############################
-############################
-#######do not impute iscoco   
-############################
-############################
-############################
-############################
-############################
-############################
-############################
+## Eliminate social origin information for France 2002, 2004, and Ireland 2002
+## (question not asked, yet coded as "high" by SL)
+tempData$socialorigin <- ifelse ( is.element(tempData$cntry.yr, c("FRA2002","FRA2004","IRL2002")), NA, tempData$socialorigin )
 
 
 
 #### Multiple imputation using Amelia ####
-## Running the next step takes a couple hours
-# completeData <- amelia (tempData, m=5
-#                         , idvars=c("cntry.yr","essround")  ## ADD countryLevelVars <- c("socgdp","gdpc","gininet","epl","unempl")
+## Running the next step takes a couple minutes
+## Imputations are country-by-country to avoid extremely warped income imputed values
+imp1 <- imp2 <- imp3 <- imp4 <- imp5 <- c()
+for (i in 1:length(unique(tempData$cntry.yr))) {
+   pais <- unique (tempData$cntry.yr)[i]
+   tmp <- tempData[tempData$cntry.yr==pais,]
+   print (pais)
+   if (invalid (tmp$income) & invalid (tmp$socialorigin)) {
+      completeData <- amelia (tmp, m=5, p2s=0
+                              , idvars=c("cntry.yr","essround","socgdp","income"
+                                         ,"gdpc","gininet","epl","unempl","socialorigin"
+                                         ,"iscoco","h.owner","self_skillspec","dweight"
+                                         ,"self_marketability","mainsample","cou","year")
+                              #, cs="cou", ts="year"
+                              , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
+                              , ords=c("gincdif2","brwmny","rlgdgr"))
+   } else if (invalid (tmp$income) & !invalid(tmp$socialorigin)) {
+      completeData <- amelia (tmp, m=5, p2s=0
+                              , idvars=c("cntry.yr","essround","socgdp","income"
+                                         ,"gdpc","gininet","epl","unempl"
+                                         ,"iscoco","h.owner","self_skillspec","dweight"
+                                         ,"self_marketability","mainsample","cou","year")
+                              #, cs="cou", ts="year"
+                              , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
+                              , ords=c("gincdif2","brwmny","rlgdgr","socialorigin"))
+   } else if (!invalid (tmp$income) & invalid(tmp$socialorigin)) {
+      completeData <- amelia (tmp, m=5, p2s=0
+                              , idvars=c("cntry.yr","essround","socgdp","socialorigin"
+                                         ,"gdpc","gininet","epl","unempl"
+                                         ,"iscoco","h.owner","self_skillspec","dweight"
+                                         ,"self_marketability","mainsample","cou","year")
+                              #, cs="cou", ts="year"
+                              , log=c("income")
+                              , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
+                              , ords=c("gincdif2","brwmny","rlgdgr"))
+   } else {
+      completeData <- amelia (tmp, m=5, p2s=0
+                              , idvars=c("cntry.yr","essround","socgdp"
+                                         ,"gdpc","gininet","epl","unempl"
+                                         ,"iscoco","h.owner","self_skillspec","dweight"
+                                         ,"self_marketability","mainsample","cou","year")
+                              #, cs="cou", ts="year"
+                              , log=c("income")
+                              , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
+                              , ords=c("gincdif2","brwmny","rlgdgr","socialorigin"))
+   }
+   imp1 <- rbind (imp1, completeData$imputations[[1]])
+   imp2 <- rbind (imp2, completeData$imputations[[2]])
+   imp3 <- rbind (imp3, completeData$imputations[[3]])
+   imp4 <- rbind (imp4, completeData$imputations[[4]])
+   imp5 <- rbind (imp5, completeData$imputations[[5]])
+}
+completeData <- list (imp1, imp2, imp3, imp4, imp5)
 
+for (i in 1:length(unique(tempData$cntry.yr))) {
+   pais <- unique (tempData$cntry.yr)[i]
+   tmp <- tempData[tempData$cntry.yr==pais,]
+   if (invalid (tmp$income)) {
+      print (cat ("no income ", pais))
+   } else if (invalid (tmp$socialorigin)) {
+      print (cat ("no socialorigin ", pais))
+   }
+}
+
+# completeData <- amelia (tempData, m=5
+#                         , idvars=c("cntry.yr","essround","socgdp"
+#                                    ,"gdpc","gininet","epl","unempl"
+#                                    ,"iscoco","h.owner","self_skillspec"
+#                                    ,"self_marketability","mainsample")
 #                         , cs="cou", ts="year"
 #                         , log=c("income")
-#                         , noms=c("gincdif2bin","male","unemplindiv","mbtru2","iscoco")
+#                         , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
 #                         , ords=c("gincdif2","brwmny","rlgdgr","socialorigin"))
 
-# save (completeData, file="~/Dropbox/CreditPreferences/Data/miESS.Rda")
-load (file="~/Dropbox/CreditPreferences/Data/miESS.Rda")
+# ## Set all five MI-datasets in a list
+# completeData <- list(completeData$imputations[[1]],
+#                    completeData$imputations[[2]],
+#                    completeData$imputations[[3]],
+#                    completeData$imputations[[4]],
+#                    completeData$imputations[[5]])
 
-## Set all five MI-datasets in a list
-completeData <- list(completeData$imputations[[1]],
-                   completeData$imputations[[2]],
-                   completeData$imputations[[3]],
-                   completeData$imputations[[4]],
-                   completeData$imputations[[5]])
+# save (completeData, file="~/Dropbox/CreditPreferences/Data/miESS.Rda")
+# load (file="~/Dropbox/CreditPreferences/Data/miESS.Rda")
+
 
 rebuildISCOCO2 <- function (x) {
    x <- as.character (x)
@@ -192,18 +246,46 @@ riskCorrespondenceTable <- read.xlsx("~/Dropbox/CreditPreferences/Data/riskData/
 
 # Check that isco codes in riskCorrespondenceTable appear in completeData
 riskCorrespondenceTable$isco[!is.element (riskCorrespondenceTable$isco, completeData[[1]]$iscoco)]
-completeData[[1]]$iscoco[!is.element (completeData[[1]]$iscoco, riskCorrespondenceTable$isco)]
-# all good!
+summary (completeData[[1]]$iscoco[!is.element (completeData[[1]]$iscoco, riskCorrespondenceTable$isco)])
+#should be a string of 21892 NAs; all good!
 
 # we end up with 20K+ missing values in rti and offsh
+# Change name of isco in riskCorrespondenceTable
+names (riskCorrespondenceTable) <- sub('isco','iscoco',names(riskCorrespondenceTable))
+# Check that completeData$iscoco elements appear in riskCorrespondenceTable$isco
+unique (completeData[[1]]$iscoco)[!is.element (unique (completeData[[1]]$iscoco), unique (riskCorrespondenceTable$isco))] # only one missing is NA
+unique (riskCorrespondenceTable$isco)[!is.element (unique (riskCorrespondenceTable$isco), unique (completeData[[1]]$iscoco))] # No missing anymore
+# 1. There could be duplicates in riskCorrespondenceTable because the same iscoco can produce two different Oeschroutine scores
+# 2. Need to eliminate Oeschroutine column from riskCorrespondenceTable
+# 3. No duplicates should now remain, since we recalculate Oeschroutine much later
+
+riskCorrespondenceTable <- unique(riskCorrespondenceTable[,-grep("Oeschroutine", colnames(riskCorrespondenceTable))])
+
 for (i in 1:5){
-   completeData[[i]] <- merge (completeData[[i]], riskCorrespondenceTable
-                 , by.x="iscoco", by.y="isco", all.x=TRUE)
+   completeData[[i]] <- plyr::join (completeData[[i]], riskCorrespondenceTable
+                 , by="iscoco", type="left", match="all")
 }
 
 #### FACTOR ANALYSIS ####
 # The main risk measure that we use is a factor that excludes OUR
 for (i in 1:5){
+   completeData[[i]]$oesch2a <- ifelse (completeData[[i]]$iscoco>=60000, NA, 
+                          ifelse ((completeData[[i]]$iscoco >= 3430 & completeData[[i]]$iscoco <= 3431) |
+                                     (completeData[[i]]$iscoco >= 4000 & completeData[[i]]$iscoco <= 4195) |
+                                     (completeData[[i]]$iscoco >= 4210 & completeData[[i]]$iscoco <= 4215) |
+                                     completeData[[i]]$iscoco == 4223, 1, 0))
+   
+   completeData[[i]]$oesch2b <- ifelse ((completeData[[i]]$iscoco >= 1 & completeData[[i]]$iscoco <= 100) |
+                             (completeData[[i]]$iscoco >= 6100 & completeData[[i]]$iscoco <= 7113) |
+                             (completeData[[i]]$iscoco >= 7200 & completeData[[i]]$iscoco <= 8290) |
+                             (completeData[[i]]$iscoco >= 9000 & completeData[[i]]$iscoco <= 9001) |
+                             (completeData[[i]]$iscoco >= 9150 & completeData[[i]]$iscoco <= 9151) |
+                             (completeData[[i]]$iscoco >= 9153 & completeData[[i]]$iscoco <= 9161) |
+                             (completeData[[i]]$iscoco >= 9200 & completeData[[i]]$iscoco <= 9311), 1, 
+                          ifelse (completeData[[i]]$iscoco>=60000, NA, 0))
+   
+   completeData[[i]]$Oeschroutine <- ifelse (completeData[[i]]$oesch2a==1 | completeData[[i]]$oesch2b==1, 1, 0)
+   
    
    completeData[[i]]$rti2 <- ifelse ( completeData[[i]]$iscoco2==61 | completeData[[i]]$iscoco2==62 | completeData[[i]]$iscoco2==92, 0.89,
                         ifelse (completeData[[i]]$iscoco2==11 | completeData[[i]]$iscoco2==23 | completeData[[i]]$iscoco2==33, -0.68,
@@ -221,6 +303,11 @@ for (i in 1:5){
    
    AllFactor$loadings
    completeData[[i]]$risk <- AllFactor$scores
+}
+
+## Clean completeData[[i]], which has two iscoco2 columns
+for (i in 1:5){
+   completeData[[i]] <- completeData[[i]][,!duplicated(colnames(completeData[[i]]))]
 }
 
 
@@ -308,9 +395,17 @@ for (i in 1:5){
                             & !is.na(completeData[[i]]$incomeTER), 1, 0)
 }
 
+tmp.risky.rich <- tmp.risky.poor <- tmp.riskless.rich <- tmp.riskless.poor <- c()
+for (i in 1:5){
+   tmp.risky.rich <- c(tmp.risky.rich, sum (completeData[[i]]$risky.rich))
+   tmp.risky.poor <- c(tmp.risky.poor, sum (completeData[[i]]$risky.poor))
+   tmp.riskless.rich <- c(tmp.riskless.rich, sum (completeData[[i]]$riskless.rich))
+   tmp.riskless.poor <- c(tmp.riskless.poor, sum (completeData[[i]]$riskless.poor))
+}
+
 #### Distribution of preference for redistribution among risk/income groups ####
 par (mfrow=c(2,2), mar=c(3,3,1,1))
-i=3
+i=2
 hist (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1]
       , breaks=seq(0.5,5.5,by=1), ylim=c(0,20000)
       , main="Risky rich")
@@ -340,14 +435,22 @@ hist (completeData[[i]]$gincdif2bin[completeData[[i]]$riskless.poor==1]
       , ylim=c(0,40000)
       , main="Riskless poor")
 
-print ("risky rich")
-length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==0 & completeData[[i]]$risky.rich==1])/length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==1 & completeData[[i]]$risky.rich==1])
-print ("riskless rich")
-length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==0 & completeData[[i]]$riskless.rich==1])/length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==1 & completeData[[i]]$riskless.rich==1])
-print ("risky poor")
-length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==0 & completeData[[i]]$risky.poor==1])/length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==1 & completeData[[i]]$risky.poor==1])
-print ("riskless poor")
-length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==0 & completeData[[i]]$riskless.poor==1])/length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==1 & completeData[[i]]$riskless.poor==1])
+for (i in 1:5){
+   print ("risky rich")
+   print (round (length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==0 & completeData[[i]]$risky.rich==1])/length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==1 & completeData[[i]]$risky.rich==1]), 4))
+}
+for (i in 1:5){
+   print ("riskless rich")
+   print (round (length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==0 & completeData[[i]]$riskless.rich==1])/length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==1 & completeData[[i]]$riskless.rich==1]), 4))
+}
+for (i in 1:5){
+   print ("risky poor")
+   print (round (length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==0 & completeData[[i]]$risky.poor==1])/length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==1 & completeData[[i]]$risky.poor==1]), 4))
+}
+for (i in 1:5){
+   print ("riskless poor")
+   print (round (length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==0 & completeData[[i]]$riskless.poor==1])/length(completeData[[i]]$gincdif2bin[completeData[[i]]$gincdif2bin==1 & completeData[[i]]$riskless.poor==1]), 4))
+}
 
 
 #### Distribution of access to credit among risk/income groups ####
@@ -366,97 +469,144 @@ hist (completeData[[i]]$brwmny[completeData[[i]]$riskless.poor==1]
       , main="Riskless poor")
 
 #### Create dichotomous brwmny ####
-completeData[[i]]$brwmnybin <- ifelse (completeData[[i]]$brwmny <= 3 & !is.na(completeData[[i]]$brwmny), 0
-                                  , ifelse (completeData[[i]]$brwmny > 3 & !is.na(completeData[[i]]$brwmny), 1, NA))
+for (i in 1:5){
+   completeData[[i]]$brwmnybin <- ifelse (completeData[[i]]$brwmny <= 3 & !is.na(completeData[[i]]$brwmny), 0
+                                          , ifelse (completeData[[i]]$brwmny > 3 & !is.na(completeData[[i]]$brwmny), 1, NA))
+}
 
-print ("risky rich")
-mean(completeData[[i]]$brwmnybin[completeData[[i]]$risky.rich==1], na.rm=T)
-print ("riskless rich")
-mean(completeData[[i]]$brwmnybin[completeData[[i]]$riskless.rich==1], na.rm=T)
-print ("risky poor")
-mean(completeData[[i]]$brwmnybin[completeData[[i]]$risky.poor==1], na.rm=T)
-print ("riskless poor")
-mean(completeData[[i]]$brwmnybin[completeData[[i]]$riskless.poor==1], na.rm=T)
+tmp <- c()
+for (i in 1:5){
+   print ("risky rich")
+   print (mean(completeData[[i]]$brwmnybin[completeData[[i]]$risky.rich==1], na.rm=T))
+   tmp <- c(tmp, mean(completeData[[i]]$brwmnybin[completeData[[i]]$risky.rich==1], na.rm=T))
+}
+mean (tmp)
+tmp <- c()
+for (i in 1:5){
+   print ("riskless rich")
+   print (mean(completeData[[i]]$brwmnybin[completeData[[i]]$riskless.rich==1], na.rm=T))
+   tmp <- c(tmp, mean(completeData[[i]]$brwmnybin[completeData[[i]]$riskless.rich==1], na.rm=T))
+}
+mean (tmp)
+tmp <- c()
+for (i in 1:5){
+   print ("risky poor")
+   print (mean(completeData[[i]]$brwmnybin[completeData[[i]]$risky.poor==1], na.rm=T))
+   tmp <- c(tmp, mean(completeData[[i]]$brwmnybin[completeData[[i]]$risky.poor==1], na.rm=T))
+}
+mean (tmp)
+tmp <- c()
+for (i in 1:5){
+   print ("riskless poor")
+   print (mean(completeData[[i]]$brwmnybin[completeData[[i]]$riskless.poor==1], na.rm=T))
+   tmp <- c(tmp, mean(completeData[[i]]$brwmnybin[completeData[[i]]$riskless.poor==1], na.rm=T))
+}
+mean (tmp)
 
 
 #### Means and standard deviations ####
-# Risky rich
-mn.risky.rich.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-mn.risky.rich.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-sd.risky.rich.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-sd.risky.rich.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-ln.risky.rich.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
-ln.risky.rich.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
+means.cat.all <- sd.cat.all <- ln.cat.all <- c()
+for (i in 1:5){
+   # Risky rich
+   mn.risky.rich.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   mn.risky.rich.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   sd.risky.rich.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   sd.risky.rich.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   ln.risky.rich.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
+   ln.risky.rich.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$risky.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
 
-# Riskless rich
-mn.riskless.rich.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-mn.riskless.rich.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-sd.riskless.rich.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-sd.riskless.rich.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-ln.riskless.rich.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
-ln.riskless.rich.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
+   # Riskless rich
+   mn.riskless.rich.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   mn.riskless.rich.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   sd.riskless.rich.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   sd.riskless.rich.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   ln.riskless.rich.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
+   ln.riskless.rich.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.rich==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
 
-# Risky poor
-mn.risky.poor.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-mn.risky.poor.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-sd.risky.poor.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-sd.risky.poor.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-ln.risky.poor.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
-ln.risky.poor.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
+   # Risky poor
+   mn.risky.poor.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   mn.risky.poor.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   sd.risky.poor.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   sd.risky.poor.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   ln.risky.poor.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
+   ln.risky.poor.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
 
-# Riskless poor
-mn.riskless.poor.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-mn.riskless.poor.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-sd.riskless.poor.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-sd.riskless.poor.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-ln.riskless.poor.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
-ln.riskless.poor.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
+   # Riskless poor
+   mn.riskless.poor.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   mn.riskless.poor.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   sd.riskless.poor.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   sd.riskless.poor.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   ln.riskless.poor.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
+   ln.riskless.poor.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
 
-# Poor vs rich
-mn.riskless.poor.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-mn.riskless.poor.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-sd.riskless.poor.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-sd.riskless.poor.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-ln.riskless.poor.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
-ln.riskless.poor.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
+   # Poor vs rich
+   mn.riskless.poor.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   mn.riskless.poor.no.credit <- mean (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   sd.riskless.poor.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   sd.riskless.poor.no.credit <- sd (completeData[[i]]$gincdif2[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+   ln.riskless.poor.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)])
+   ln.riskless.poor.no.credit <- length (completeData[[i]]$gincdif2[!is.na(completeData[[i]]$gincdif2bin) & completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)])
 
 
-# High vs low risk
+   # High vs low risk
+   
+   means.cat <- c(mn.risky.rich.credit, mn.risky.rich.no.credit
+                  , mn.riskless.rich.credit, mn.riskless.rich.no.credit
+                  , mn.risky.poor.credit, mn.risky.poor.no.credit
+                  , mn.riskless.poor.credit, mn.riskless.poor.no.credit)
 
-means.cat <- c(mn.risky.rich.credit, mn.risky.rich.no.credit
-  , mn.riskless.rich.credit, mn.riskless.rich.no.credit
-  , mn.risky.poor.credit, mn.risky.poor.no.credit
-  , mn.riskless.poor.credit, mn.riskless.poor.no.credit)
-
-sd.cat <- c(sd.risky.rich.credit, sd.risky.rich.no.credit
+   sd.cat <- c(sd.risky.rich.credit, sd.risky.rich.no.credit
                , sd.riskless.rich.credit, sd.riskless.rich.no.credit
                , sd.risky.poor.credit, sd.risky.poor.no.credit
                , sd.riskless.poor.credit, sd.riskless.poor.no.credit)
+   
+   ln.cat <- c(ln.risky.rich.credit, ln.risky.rich.no.credit
+               , ln.riskless.rich.credit, ln.riskless.rich.no.credit
+               , ln.risky.poor.credit, ln.risky.poor.no.credit
+               , ln.riskless.poor.credit, ln.riskless.poor.no.credit)
+   
+   means.cat.all <- rbind (means.cat.all, means.cat)
+   sd.cat.all <- rbind (sd.cat.all, sd.cat)
+   ln.cat.all <- rbind (ln.cat.all, ln.cat)
+}
+colnames (means.cat.all) <- colnames (sd.cat.all) <- colnames (ln.cat.all) <- c("risky.rich.credit"
+                                                                                , "risky.rich.no.credit"
+                                                                                , "riskless.rich.credit"
+                                                                                , "riskless.rich.no.credit"
+                                                                                , "risky.poor.credit"
+                                                                                , "risky.poor.no.credit"
+                                                                                , "riskless.poor.credit"
+                                                                                , "riskless.poor.no.credit")
 
-plot (c(0,5), c(0,1), type="n"
+mn.groups <- round (colMeans (means.cat.all), 3)
+sd.groups <- round (sqrt ( colMeans (sd.cat.all^2) + 1.2 * apply (means.cat.all, 2, function (x) { sum ((x-mean(x))^2)/4 })  ), 3)
+ln.groups <- round (colMeans (ln.cat.all))
+
+par (mfrow=c(1,1))
+plot (c(0,5), c(0,5), type="n"
       , axes=F, main="")
 mtext (side=1, line=0
        , at=c(1:4), text=c("risky","riskless","risky","riskless"))
 mtext (side=1, line=1
        , at=c(1:4), text=c("rich","rich","poor","poor"))
 axis (2)
-points (y=means.cat
-        , x=c(0.8,1.2,1.8,2.2,2.8,3.2,3.8,4.2)
+points (y=colMeans(means.cat.all)
+        , x=c(0.9,1.1,1.9,2.1,2.9,3.1,3.9,4.1)
         , col=rep(c("black","grey"),4)
         , pch=19)
-segments (x0=c(0.8,1.2,1.8,2.2,2.8,3.2,3.8,4.2)
-          , x1=c(0.8,1.2,1.8,2.2,2.8,3.2,3.8,4.2)
-          , y0=means.cat+(sd.cat)^2
-          , y1=means.cat-(sd.cat)^2
+segments (x0=c(0.9,1.1,1.9,2.1,2.9,3.1,3.9,4.1)
+          , x1=c(0.9,1.1,1.9,2.1,2.9,3.1,3.9,4.1)
+          , y0=colMeans(means.cat.all)+(colMeans(sd.cat.all))^2  # This measure of variation is wrong
+          , y1=colMeans(means.cat.all)-(colMeans(sd.cat.all))^2  # because it doesn't include uncertainty from imputation
           , col=rep(c("black","grey"),4))
 
 # Risky poor
-mean (completeData[[i]]$gincdif2bin[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-mean (completeData[[i]]$gincdif2bin[completeData[[i]]$risky.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+mean (completeData[[i]]$gincdif2bin[completeData[[i]]$risky.poor==1 & !is.na(completeData[[i]]$risky.poor) & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+mean (completeData[[i]]$gincdif2bin[completeData[[i]]$risky.poor==1 & !is.na(completeData[[i]]$risky.poor) & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
 
-# Risky rich
-mean (completeData[[i]]$gincdif2bin[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
-mean (completeData[[i]]$gincdif2bin[completeData[[i]]$riskless.poor==1 & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+# Riskless poor
+mean (completeData[[i]]$gincdif2bin[completeData[[i]]$riskless.poor==1 & !is.na(completeData[[i]]$riskless.poor) & completeData[[i]]$brwmnybin==1 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
+mean (completeData[[i]]$gincdif2bin[completeData[[i]]$riskless.poor==1 & !is.na(completeData[[i]]$riskless.poor) & completeData[[i]]$brwmnybin==0 & !is.na(completeData[[i]]$brwmnybin)], na.rm=T)
 
 #### Plot differences across risk/income groups and credit/no credit groups ####
 
@@ -531,122 +681,266 @@ mean (completeData[[i]]$gincdif2bin[completeData[[i]]$riskless.poor==1 & complet
 #                         , plots=FALSE )
 ###########################################################################
 
-# Some variables need to be rescaled
-include.vars <- c("gincdif2bin","gincdif2","brwmny","male"
-                  ,"agea","unemplindiv","perceqnatincdollar"
-                  ,"eduyrs2","mbtru2","rlgdgr","socgdp","gdpc"
-                  ,"gininet","epl","unempl"
-                  ,"mainsample"
-                  ,"incomeLOG","incomeQNT","incomeTER", "self_marketability"
-                  , "self_skillspec","h.owner","socialorigin","essround"
-                  ,"risk","income","cntry.yr","dweight","country.year.isco")
-tmp <- complete.ess[,include.vars]
-tmp$log.income <- log(tmp$income)
-tmp$log.gdpc   <- log(tmp$gdpc)
-colnames(tmp)[grep("incomeLOG", colnames(tmp))] <- "log.perceqnatincdollar"
+
+for (i in 1:5){
+   completeData[[i]]$log.income <- log(completeData[[i]]$income)
+   completeData[[i]]$log.gdpc   <- log(completeData[[i]]$gdpc)
+}
 
 vars2rescale <- c("agea","eduyrs2","socgdp"
-                  ,"gininet")  #,"log.perceqnatincdollar"
-                  #,"log.income","log.gdpc")
-
-###### PAY ATTENTION TO STANDARDIZING/RESCALING VARIABLES
+                  ,"gininet","risk"
+                  ,"log.income","log.gdpc"
+                  ,"brwmny","gincdif2bin","gincdif2"
+                  ,"gininet","epl","unempl","self_marketability"
+                  ,"self_skillspec","rlgdgr","socialorigin")
 
 # The following function can be included inside lmer to rescale
 rescale.var <- function (x) {
    res.x <- (x -mean(x, na.rm=T))/sd(x, na.rm=T)
-   return (res.x)}
+   return (res.x)
+}
 
-for (i in 1:length (vars2rescale)) {
-   var <- vars2rescale[i]
-   resc.var <- rescale.var(tmp[,grep (paste0("^",var,"$"), colnames(tmp))])
-   tmp[,grep (paste0("^",var,"$"), colnames(tmp))] <- resc.var
+for (j in 1:5){
+   for (i in 1:length (vars2rescale)) {
+      var <- vars2rescale[i]
+      resc.var <- rescale.var(completeData[[j]][,grep (paste0("^",var,"$"), colnames(completeData[[j]]))])
+      completeData[[j]][,grep (paste0("^",var,"$"), colnames(completeData[[j]]))] <- resc.var
+   }
 }
 
 #### MODELS ####
 #fit.baseline, fit.gini, fit.income, fit.riskmacro, fit.risk.std
-
+## The following uses code from https://stats.stackexchange.com/questions/117605/lmer-with-multiply-imputed-data
+## The idea is to run lmer on each of 5 multiply-imputed datasets, then combine parameter estimates,
+## especially for random effects. In order to do so, the following functions are required:
+## REsdExtract, REcorrExtract, modelRandEffStats, modelFixedEff, print.merModList
+## These are saved in CreditPreferences/Code/ameliaLmer.R
+source ("~/Dropbox/CreditPreferences/Code/ameliaLmer.R")
 
 ###### CAN WE ADD ROBUST STANDARD ERRORS AT SURVEY LEVEL
 
-# Baseline model
-fit.baseline <- lmer(gincdif2 ~ brwmny
-  + log.income + male + agea + unemplindiv 
-  + eduyrs2 + mbtru2 + rlgdgr 
-  + socgdp + log.gdpc
-  + (1 + brwmny | cntry.yr),
-  weights = dweight, data=tmp)
-summary(fit.baseline)
-
-# Meltzer-Richard Fork
-fit.gini <- lmer(gincdif2 ~ brwmny*gininet
-                     + log.income + male + agea + unemplindiv 
-                     + eduyrs2 + mbtru2 + rlgdgr 
-                     + socgdp + log.gdpc
-                     + (1 + brwmny | cntry.yr),
-                     weights = dweight, data=tmp)
-summary(fit.gini)
-interplot(fit.gini, "brwmny", "gininet")
+# Baseline model (model 1)
+fit.baseline <- lapply(completeData,
+               function(d) lmer(gincdif2 ~ brwmny
+                                + log.income + male + agea + unemplindiv 
+                                + eduyrs2 + mbtru2 + rlgdgr 
+                                + socgdp + log.gdpc
+                                + (1 + brwmny | cntry.yr),
+                                weights = dweight, data=d))
+print.merModList (fit.baseline)
 
 
 
-# Interaction with income
-fit.income <- lmer(gincdif2 ~ brwmny + log.income
-                   + brwmny:log.income
-                   + male + agea + unemplindiv 
-                   + eduyrs2 + mbtru2 + rlgdgr 
-                   + socgdp + log.gdpc
-                   + (1 + brwmny | cntry.yr),
-                   weights = dweight, data=tmp)
-summary(fit.income)
-# interplot (fit.income, "brwmny", "log.income")
+# Grahps on model fit.baseline
+InterceptPred <-  SE.Intercept <- MainEffect <- SE.MainEffect <- c()
+for (i in 1:5){
+   ranef.brwmny <- ranef (fit.baseline[[i]])$cntry.yr[,grep("^brwmny$", names (ranef (fit.baseline[[i]])$cntry.yr))] +
+      fixef(fit.baseline[[i]])[grep("^brwmny$", names (fixef (fit.baseline[[i]])))]
+   se.ranef.brwmny <- se.ranef(fit.baseline[[i]])$cntry.yr[,2]
+
+   fixef.brwmny <- fixef(fit.baseline[[i]])[grep("^brwmny$", names (fixef (fit.baseline[[i]])))]
+   se.fixef.brwmny <- se.fixef (fit.baseline[[i]])[2]
+   
+   InterceptPred <- rbind (InterceptPred, ranef.brwmny)
+   SE.Intercept  <- rbind (SE.Intercept, se.ranef.brwmny)
+   
+   MainEffect <- c (MainEffect, fixef.brwmny)
+   SE.MainEffect <- c (SE.MainEffect, se.fixef.brwmny)
+}
+
+avg.InterceptPred  <- colMeans (InterceptPred)
+var.avg.Intercept <- apply (InterceptPred, 2, function (x) { sum ((x-mean(x))^2)/4 }) # variance of mean effect
+avg.var.Intercept <- colMeans (SE.Intercept^2)  # mean variance
+full.SE.Intercept <- sqrt (avg.var.Intercept + var.avg.Intercept*(1.2))
+avg.MainEffect <- mean (MainEffect)
+full.SE.MainEffect <- sqrt ( mean (SE.MainEffect^2) + 1.2* sum ((SE.MainEffect-mean(SE.MainEffect))^2)      )
+
+lower <- avg.MainEffect - 1.96*full.SE.MainEffect
+upper <- avg.MainEffect + 1.96*full.SE.MainEffect
+increasing.order <- order (avg.InterceptPred)
+   
+pdf(paste0(graphicsPath, "randomCoefBaselineLMER.pdf"), h=7, w=11)
+plot (c(1,length(avg.InterceptPred))
+      , c(min(avg.InterceptPred-2*full.SE.Intercept),max(avg.InterceptPred+2*full.SE.Intercept))
+      , type="n"
+      , xlab=""
+      , ylab="", axes=F)
+polygon (x=c(0,0,length(avg.InterceptPred)+1,length(avg.InterceptPred)+1)
+         , y=c(lower,upper,upper,lower)
+         , col="gray"
+         , border=F)
+segments (x0=0, x1=length(avg.InterceptPred)+1
+          , y0=avg.MainEffect, y1=avg.MainEffect)
+segments (x0=1:length(avg.InterceptPred), x1=1:length(avg.InterceptPred)
+          , y0=avg.InterceptPred[increasing.order]-1.96*full.SE.Intercept[increasing.order]
+          , y1=avg.InterceptPred[increasing.order]+1.96*full.SE.Intercept[increasing.order])
+points (xy.coords(1:length(avg.InterceptPred), avg.InterceptPred[increasing.order]), pch=19)
+axis (2)
+mtext (side=2, line=3, text="Marginal effect of access to credit")
+mtext (side=2, line=2, text="on redistributive preference")
+# mtext (tolower(unique(fit.baseline[[1]]@frame$cntry.yr))[increasing.order], side=1, line=0, las=2, at=1:length(ranef.brwmny), cex=0.8)
+mtext (side=1, line=1, text="Country-year units (ordered by size of marginal effect)")
+abline (h=0, lty=3)
+dev.off()
+
+
+
+# Meltzer-Richard Fork (model 2)
+fit.gini <- lapply(completeData,
+                       function(d) lmer(gincdif2 ~ brwmny*gininet
+                                        + log.income + male + agea + unemplindiv 
+                                        + eduyrs2 + mbtru2 + rlgdgr 
+                                        + socgdp + log.gdpc
+                                        + (1 + brwmny | cntry.yr),
+                                        weights = dweight, data=d))
+print.merModList (fit.gini)
+# interplot(fit.gini, "brwmny", "gininet") # This functions but I'm not sure which MI dataset it uses
+
+giniSims <- seq (-2,2,length=50)
+PointPred <- SE.PointPred <- MargEffect <- SE.MargEffect <- c()
+for (i in 1:5){
+   pointPred <- ranef (fit.gini[[i]])$cntry.yr$brwmny + fixef(fit.gini[[i]])[grep("^brwmny$", names (fixef (fit.gini[[i]])))]
+   se.pointPred <- se.ranef (fit.gini[[i]])$cntry.yr[,grep("^brwmny$", colnames (se.ranef (fit.gini[[i]])$cntry.yr))]
+   giniPoints <- as.numeric (unlist (by (completeData[[i]]$gininet, completeData[[i]]$cntry.yr, unique)))
+   # Eliminate those countries that are not in the estimation
+   giniPoints <- giniPoints[is.element (unique (completeData[[i]]$cntry.yr), levels (fit.gini[[1]]@frame$cntry.yr))]
+   # giniPoints <- giniPoints[is.element(unique(tempData$cntry.yr), unique (tempData[-omitted.obs,]$cntry.yr))]
+   correctOrder <- order (pointPred)
+   
+   # marginal effect of access-to-credit conditional on gini: dY/dbrwmny|gininet
+   which.brwmny <- grep("^brwmny$", names (fixef(fit.gini[[i]])))
+   which.interac <- grep("brwmny:gininet", names (fixef(fit.gini[[i]])))
+   margEffect <- fixef (fit.gini[[i]])[which.brwmny] + fixef (fit.gini[[i]])[which.interac]*giniSims
+   se.margEffect <- sqrt(vcov(fit.gini[[i]])[which.brwmny,which.brwmny] 
+                         + vcov(fit.gini[[i]])[which.interac,which.interac]*(giniSims^2)
+                         + vcov(fit.gini[[i]])[which.brwmny,which.interac]*2*giniSims)
+   
+   PointPred <- rbind (PointPred, pointPred)
+   SE.PointPred <- rbind (SE.PointPred, se.pointPred)
+   MargEffect <- rbind (MargEffect, margEffect)
+   SE.MargEffect <- rbind (SE.MargEffect, se.margEffect)
+}
+
+# Build correct standard errors, based on Amelia (https://cran.r-project.org/web/packages/Amelia/vignettes/amelia.pdf)
+avg.PointPred  <- colMeans (PointPred)
+avg.MargEffect <- colMeans (MargEffect)
+var.avg.PointPred  <- apply (PointPred, 2, function (x) { sum ((x-mean(x))^2)/4 })
+var.avg.MargEffect <- apply (MargEffect, 2, function (x) { sum ((x-mean(x))^2)/4 })
+avg.var.PointPred  <- colMeans (SE.PointPred^2)
+avg.var.MargEffect <- colMeans (SE.MargEffect^2)
+full.SE.PointPred  <- sqrt (avg.var.PointPred + var.avg.PointPred*(1.2))
+full.SE.MargEffect <- sqrt (avg.var.MargEffect + var.avg.MargEffect*(1.2))
+
+pdf (paste0(graphicsPath, "GiniEffect.pdf"), h=7, w=10)
+par (mar=c(3,4,0.5,0.5), las=0)
+plot (avg.PointPred~giniPoints, type="n", bty="n"
+      , xlab=""
+      , ylab=""
+      , ylim=c(-0.30,0.1), cex.axis=0.8)
+mtext (side=1, line=2
+       , text="Post-fisc income inequality (Gini, standardized)")
+mtext (side=2, line=3
+       , text="Marginal effect of access to credit")
+mtext (side=2, line=2
+       , text="on redistributive preference")
+polygon( y=c(avg.MargEffect+1.96*full.SE.MargEffect, rev(avg.MargEffect-1.96*full.SE.MargEffect))
+         , x=c(giniSims, rev(giniSims))
+         , col="gray"
+         , border=NA)
+points (xy.coords(giniSims, avg.MargEffect), type="l")
+points (xy.coords(giniPoints, avg.PointPred), pch=19)
+segments (x0=giniPoints, x1=giniPoints
+          , y0=avg.PointPred + 1.96*full.SE.PointPred
+          , y1=avg.PointPred - 1.96*full.SE.PointPred)
+abline (h=0, lty=2)
+dev.off ()
+
+
+
+# Interaction with income (model 4)
+fit.income <- lapply(completeData,
+                   function(d) lmer(gincdif2 ~ brwmny + log.income
+                                    + brwmny:log.income
+                                    + male + agea + unemplindiv 
+                                    + eduyrs2 + mbtru2 + rlgdgr 
+                                    + socgdp + log.gdpc
+                                    + (1 + brwmny + log.income
+                                       + brwmny:log.income | cntry.yr),
+                                    weights = dweight, data=d))
+print.merModList (fit.income)
 
 #### Graph fit.income ####
-# Find the omitted data
-omitted.obs <- as.numeric (attr (fit.income@frame, "na.action"))
-# Every survey has at least one omitted variable. Nine surveys are
-# completely omitted. These are:
-noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
+# # Find the omitted data
+# omitted.obs <- as.numeric (attr (fit.income[[1]]@frame, "na.action"))
+# # Every survey has at least one omitted variable. Nine surveys are
+# # completely omitted. These are:
+# noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
 
-incomeSims <- seq(-3,4,length=50)
-interceptPred <- ranef (fit.income)$cntry.yr[,grep("^brwmny.std$", names (fixef (fit.income)))] +
-   fixef(fit.income)[grep("^brwmny.std$", names (fixef (fit.income)))]
-slopePred <- ranef (fit.income)$cntry.yr[,grep("^brwmny.std:log.income.std$", names (ranef (fit.income)$cntry.yr))] + fixef(fit.income)[grep("^brwmny.std:log.income.std$", names (fixef (fit.income)))]
-which.brwmny <- grep("^brwmny.std$", names (fixef(fit.income)))
-which.interac <- grep("^brwmny.std:log.income.std$", names (fixef(fit.income)))
-se.pointPred <- se.ranef (fit.income)$cntry.yr[,2]
-margEffect <- fixef (fit.income)[which.brwmny] + fixef (fit.income)[which.interac]*incomeSims
-se.margEffect <- sqrt(vcov(fit.income)[which.brwmny,which.brwmny] +
-                            vcov(fit.income)[which.interac,which.interac]*(incomeSims^2) +
-                            vcov(fit.income)[which.brwmny,which.interac]*2*incomeSims)
-
-calculateImpact <- fixef (fit.income)[which.interac]*quantile(tmp$log.income.std, prob=0.75, na.rm=T) -
-                     fixef (fit.income)[which.interac]*quantile(tmp$log.income.std, prob=0.25, na.rm=T)
-calculateImpact/0.044 # denominator is standard deviation of cross-survey random effects for credit
-
-# pdf (paste0(graphicsPath, "creditEffectVIncome.pdf"), h=7, w=10)
-par (mar=c(3,4,0.5,0.5), las=0)
-plot (margEffect~incomeSims, bty="n", type="n"
-      , xlab=""
-      , ylab="", pch=19, axes=F
-      , ylim=c(-0.3,0.1), xlim=c(-2,3), cex.axis=0.8)
-for (i in 1:length(interceptPred)){
-   abline (a=interceptPred[i], b=slopePred[i], col="lightgray")
+incomeSims <- seq(-3.5,4.5,length=50)
+InterceptPred <- SlopePred <- MargEffect <- SE.MargEffect <- c()
+for (i in 1:5){
+   interceptPred <- ranef (fit.income[[i]])$cntry.yr[,grep("^brwmny$", names (ranef (fit.income[[i]])$cntry.yr))] +
+      fixef(fit.income[[i]])[grep("^brwmny$", names (fixef (fit.income[[i]])))]
+   slopePred <- ranef (fit.income[[i]])$cntry.yr[,grep("^brwmny:log.income$", names (ranef (fit.income[[i]])$cntry.yr))] +
+      fixef(fit.income[[i]])[grep("^brwmny:log.income$", names (fixef (fit.income[[i]])))]
+   which.brwmny <- grep("^brwmny$", names (fixef(fit.income[[i]])))
+   which.interac <- grep("^brwmny:log.income$", names (fixef(fit.income[[i]])))
+   se.pointPred <- se.ranef (fit.income[[i]])$cntry.yr[,2]
+   margEffect <- fixef (fit.income[[i]])[which.brwmny] + fixef (fit.income[[i]])[which.interac]*incomeSims
+   se.margEffect <- sqrt(vcov(fit.income[[i]])[which.brwmny,which.brwmny] +
+                            vcov(fit.income[[i]])[which.interac,which.interac]*(incomeSims^2) +
+                            vcov(fit.income[[i]])[which.brwmny,which.interac]*2*incomeSims)
+   
+   InterceptPred <- rbind (InterceptPred, interceptPred)
+   SlopePred <- rbind (SlopePred, slopePred)
+   MargEffect <- rbind (MargEffect, margEffect)
+   SE.MargEffect <- rbind (SE.MargEffect, se.margEffect)
 }
-polygon( y=c(margEffect+1.96*se.margEffect, rev(margEffect-1.96*se.margEffect))
+
+avg.InterceptPred  <- colMeans (InterceptPred)
+avg.SlopePred  <- colMeans (SlopePred)
+avg.MargEffect <- colMeans (MargEffect)
+var.avg.MargEffect <- apply (MargEffect, 2, function (x) { sum ((x-mean(x))^2)/4 }) # variance of mean effect
+avg.var.MargEffect <- colMeans (SE.MargEffect^2)  # mean variance
+full.SE.MargEffect <- sqrt (avg.var.MargEffect + var.avg.MargEffect*(1.2))
+
+
+
+## Calculate impact of income, as a share of standard deviation of cross-survey random effects for brwmny
+tmp <- c()
+for (i in 1:5){
+   calculateImpact <- fixef (fit.income[[i]])[which.interac]*quantile(completeData[[i]]$log.income, prob=0.75, na.rm=T) -
+      fixef (fit.income[[i]])[which.interac]*quantile(completeData[[i]]$log.income, prob=0.25, na.rm=T)
+   print (calculateImpact/0.053) # denominator is standard deviation of cross-survey random effects for credit
+   tmp <- c(tmp, calculateImpact/0.053)
+}
+print (mean (tmp))
+
+
+pdf (paste0(graphicsPath, "creditEffectVIncome.pdf"), h=7, w=10)
+par (mar=c(3,4,0.5,0.5), las=0)
+plot (avg.MargEffect~incomeSims, bty="n", type="n"
+      , xlab=""
+      , ylab="", pch=19, axes=F, cex.axis=0.8
+      , ylim=c(-0.3,0.1), xlim=c(-3,4))
+for (i in 1:length(interceptPred)){
+   abline (a=avg.InterceptPred[i], b=avg.SlopePred[i], col="lightgray")
+}
+polygon( y=c(avg.MargEffect+1.96*full.SE.MargEffect, rev(avg.MargEffect-1.96*full.SE.MargEffect))
          , x=c(incomeSims, rev(incomeSims))
          , col="darkgray"
          , border=NA)
-points (xy.coords(incomeSims, margEffect), type="l")
+points (xy.coords(incomeSims, avg.MargEffect), type="l")
 axis (2)
 axis (1)
 mtext (side=1, line=2
-       , text="Income (log)")
+       , text="log Income (standardized)")
 mtext (side=2, line=3
        , text="Marginal pooled effect of access to credit")
 mtext (side=2, line=2
        , text="on redistributive preference")
 abline (h=0, lty=2)
-# dev.off ()
+dev.off ()
 
 
 
@@ -772,41 +1066,80 @@ abline (h=0, lty=2)
 
 
 #### Insurance-as-risk fork ####
-fit.risk.macro <- lmer(gincdif2 ~ brwmny*epl
-                 + log.income + male + agea + unemplindiv 
-                 + eduyrs2 + mbtru2 + rlgdgr 
-                 + socgdp + log.gdpc
-                 + (1 + brwmny | cntry.yr),
-                 weights = dweight, na.action="na.omit", data=tmp)
-summary(fit.risk.macro)
-interplot(fit.risk.macro, "brwmny", "epl")
+# fit.risk.macro (model 3)
+fit.risk.macro <- lapply(completeData,
+                     function(d) lmer(gincdif2 ~ brwmny*epl
+                                      + log.income + male + agea + unemplindiv 
+                                      + eduyrs2 + mbtru2 + rlgdgr 
+                                      + socgdp + log.gdpc
+                                      + (1 + brwmny | cntry.yr),
+                                      weights = dweight, data=d))
+
+# Model that excludes Portugal
+fit.risk.macro.noPRT <- lapply(completeData,
+                         function(d) lmer(gincdif2 ~ brwmny*epl
+                                          + log.income + male + agea + unemplindiv 
+                                          + eduyrs2 + mbtru2 + rlgdgr 
+                                          + socgdp + log.gdpc
+                                          + (1 + brwmny | cntry.yr),
+                                          weights = dweight, data=subset (d, d$cou != "PRT")))
 
 #### Graph fit.risk.macro ####
-# Find the omitted data
-omitted.obs <- as.numeric (attr (fit.risk.macro@frame, "na.action"))
-# Every survey has at least one omitted variable. Nine surveys are
-# completely omitted. These are:
-noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
+print.merModList (fit.risk.macro)
+interplot(fit.risk.macro, "brwmny", "epl")
 
-pointPred <- ranef (fit.risk.macro)$cntry.yr[,2] + fixef(fit.risk.macro)[grep("^brwmny$", names (fixef (fit.risk.macro)))]
-se.pointPred <- se.ranef (fit.risk.macro)$cntry.yr[,2]
-eplPoints <- as.numeric (unlist (by (tmp$epl, tmp$cntry.yr, unique)))
-# Eliminate those countries that are not in the estimation
-eplPoints <- eplPoints[is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
-correctOrder <- order (pointPred)
+# # Find the omitted data
+# omitted.obs <- as.numeric (attr (fit.risk.macro@frame, "na.action"))
+# # Every survey has at least one omitted variable. Nine surveys are
+# # completely omitted. These are:
+# noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
 
-# marginal effect of access-to-credit conditional on gini: dY/dbrwmny|gininet
-eplSim <- seq (0,5, length=50)
-which.brwmny <- grep("^brwmny$", names (fixef(fit.risk.macro)))
-which.interac <- grep("brwmny:epl", names (fixef(fit.risk.macro)))
-margEffect <- fixef (fit.risk.macro)[which.brwmny] + fixef (fit.risk.macro)[which.interac]*eplSim
-se.margEffect <- sqrt(vcov(fit.risk.macro)[which.brwmny,which.brwmny] 
-                      + vcov(fit.risk.macro)[which.interac,which.interac]*(eplSim^2)
-                      + vcov(fit.risk.macro)[which.brwmny,which.interac]*2*eplSim)
+PointPred <- SE.PointPred <- MargEffect <- SE.MargEffect <- c()
+for (i in 1:5){
+   pointPred <- ranef (fit.risk.macro[[i]])$cntry.yr$brwmny + fixef(fit.risk.macro[[i]])[grep("^brwmny$", names (fixef (fit.risk.macro[[i]])))]
+   se.pointPred <- se.ranef (fit.risk.macro[[i]])$cntry.yr[,grep("^brwmny$", colnames (se.ranef (fit.risk.macro[[i]])$cntry.yr))]
+   eplPoints <- as.numeric (unlist (by (completeData[[i]]$epl, completeData[[i]]$cntry.yr, unique)))
+   # Eliminate those countries that are not in the estimation
+   eplPoints <- eplPoints[is.element (unique (completeData[[i]]$cntry.yr), levels (fit.risk.macro[[1]]@frame$cntry.yr))]
+   # eplPoints <- eplPoints[is.element(unique(tempData$cntry.yr), unique (tempData[-omitted.obs,]$cntry.yr))]
+   correctOrder <- order (pointPred)
 
-# pdf (paste0(graphicsPath, "eplEffect.pdf"), h=7, w=10)
+   # marginal effect of access-to-credit conditional on gini: dY/dbrwmny|gininet
+   eplSim <- seq (-2,3, length=50)
+   which.brwmny <- grep("^brwmny$", names (fixef(fit.risk.macro[[i]])))
+   which.interac <- grep("brwmny:epl", names (fixef(fit.risk.macro[[i]])))
+   margEffect <- fixef (fit.risk.macro[[i]])[which.brwmny] + fixef (fit.risk.macro[[i]])[which.interac]*eplSim
+   se.margEffect <- sqrt(vcov(fit.risk.macro[[i]])[which.brwmny,which.brwmny] 
+                      + vcov(fit.risk.macro[[i]])[which.interac,which.interac]*(eplSim^2)
+                      + vcov(fit.risk.macro[[i]])[which.brwmny,which.interac]*2*eplSim)
+   
+   PointPred <- rbind (PointPred, pointPred)
+   SE.PointPred <- rbind (SE.PointPred, se.pointPred)
+   MargEffect <- rbind (MargEffect, margEffect)
+   SE.MargEffect <- rbind (SE.MargEffect, se.margEffect)
+}
+
+# Build correct standard errors, based on Amelia (https://cran.r-project.org/web/packages/Amelia/vignettes/amelia.pdf)
+avg.PointPred  <- colMeans (PointPred)
+avg.MargEffect <- colMeans (MargEffect)
+var.avg.PointPred  <- apply (PointPred, 2, function (x) { sum ((x-mean(x))^2)/4 })
+var.avg.MargEffect <- apply (MargEffect, 2, function (x) { sum ((x-mean(x))^2)/4 })
+avg.var.PointPred  <- colMeans (SE.PointPred^2)
+avg.var.MargEffect <- colMeans (SE.MargEffect^2)
+full.SE.PointPred  <- sqrt (avg.var.PointPred + var.avg.PointPred*(1.2))
+full.SE.MargEffect <- sqrt (avg.var.MargEffect + var.avg.MargEffect*(1.2))
+
+# Argument for exclusion of Portugal: Influence diagnostics
+hatval <- hatvalues (lm(avg.PointPred~eplPoints))
+obs <- rownames (ranef (fit.risk.macro[[1]])$cntry.yr)
+obs[which (hatval > 4*mean (hatval))] # All Portugal observations are at least 4 times larger
+# than the average hatvalue (a rule of thumb to worry about leverage is to have  hat values larger
+# than twice the average hatvalue, so we are in trouble here)
+influence.measures(lm (avg.PointPred~eplPoints)) # Cooks distances for Portugal observations are also large
+
+pdf (paste0(graphicsPath, "eplEffect.pdf"), h=7, w=10)
 par (mar=c(3,4,0.5,0.5), las=0)
-plot (pointPred~eplPoints, type="n", bty="n"
+plot (avg.PointPred~eplPoints, type="n", bty="n"
       , xlab=""
       , ylab=""
       , ylim=c(-0.30,0.1), cex.axis=0.8)
@@ -816,76 +1149,161 @@ mtext (side=2, line=3
        , text="Marginal effect of access to credit")
 mtext (side=2, line=2
        , text="on redistributive preference")
-polygon( y=c(margEffect+1.96*se.margEffect, rev(margEffect-1.96*se.margEffect))
+polygon( y=c(avg.MargEffect+1.96*full.SE.MargEffect, rev(avg.MargEffect-1.96*full.SE.MargEffect))
          , x=c(eplSim, rev(eplSim))
          , col="gray"
          , border=NA)
-points (xy.coords(eplSim, margEffect), type="l")
-points (xy.coords(eplPoints, pointPred), pch=19)
+points (xy.coords(eplSim, avg.MargEffect), type="l")
+points (xy.coords(eplPoints, avg.PointPred), pch=19)
 segments (x0=eplPoints, x1=eplPoints
-          , y0=pointPred + 1.96*se.pointPred
-          , y1=pointPred - 1.96*se.pointPred)
+          , y0=avg.PointPred + 1.96*full.SE.PointPred
+          , y1=avg.PointPred - 1.96*full.SE.PointPred)
 abline (h=0, lty=2)
-# dev.off ()
+dev.off ()
 
 
+#### Graph fit.risk.macro.noPRT ####
+print.merModList (fit.risk.macro.noPRT)
+interplot(fit.risk.macro.noPRT, "brwmny", "epl")
+
+# # Find the omitted data
+# omitted.obs <- as.numeric (attr (fit.risk.macro@frame, "na.action"))
+# # Every survey has at least one omitted variable. Nine surveys are
+# # completely omitted. These are:
+# noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
+
+PointPred <- SE.PointPred <- MargEffect <- SE.MargEffect <- c()
+for (i in 1:5){
+   pointPred <- ranef (fit.risk.macro.noPRT[[i]])$cntry.yr$brwmny + fixef(fit.risk.macro.noPRT[[i]])[grep("^brwmny$", names (fixef (fit.risk.macro.noPRT[[i]])))]
+   se.pointPred <- se.ranef (fit.risk.macro.noPRT[[i]])$cntry.yr[,grep("^brwmny$", colnames (se.ranef (fit.risk.macro.noPRT[[i]])$cntry.yr))]
+   eplPoints <- as.numeric (unlist (by (completeData[[i]]$epl, completeData[[i]]$cntry.yr, unique)))
+   # Eliminate those countries that are not in the estimation
+   eplPoints <- eplPoints[is.element (unique (completeData[[i]]$cntry.yr), levels (fit.risk.macro.noPRT[[1]]@frame$cntry.yr))]
+   # eplPoints <- eplPoints[is.element(unique(tempData$cntry.yr), unique (tempData[-omitted.obs,]$cntry.yr))]
+   correctOrder <- order (pointPred)
+   
+   # marginal effect of access-to-credit conditional on gini: dY/dbrwmny|gininet
+   eplSim <- seq (-2,3, length=50)
+   which.brwmny <- grep("^brwmny$", names (fixef(fit.risk.macro.noPRT[[i]])))
+   which.interac <- grep("brwmny:epl", names (fixef(fit.risk.macro.noPRT[[i]])))
+   margEffect <- fixef (fit.risk.macro.noPRT[[i]])[which.brwmny] + fixef (fit.risk.macro.noPRT[[i]])[which.interac]*eplSim
+   se.margEffect <- sqrt(vcov(fit.risk.macro.noPRT[[i]])[which.brwmny,which.brwmny] 
+                         + vcov(fit.risk.macro.noPRT[[i]])[which.interac,which.interac]*(eplSim^2)
+                         + vcov(fit.risk.macro.noPRT[[i]])[which.brwmny,which.interac]*2*eplSim)
+   
+   PointPred <- rbind (PointPred, pointPred)
+   SE.PointPred <- rbind (SE.PointPred, se.pointPred)
+   MargEffect <- rbind (MargEffect, margEffect)
+   SE.MargEffect <- rbind (SE.MargEffect, se.margEffect)
+}
+
+# Build correct standard errors, based on Amelia (https://cran.r-project.org/web/packages/Amelia/vignettes/amelia.pdf)
+avg.PointPred  <- colMeans (PointPred)
+avg.MargEffect <- colMeans (MargEffect)
+var.avg.PointPred  <- apply (PointPred, 2, function (x) { sum ((x-mean(x))^2)/4 })
+var.avg.MargEffect <- apply (MargEffect, 2, function (x) { sum ((x-mean(x))^2)/4 })
+avg.var.PointPred  <- colMeans (SE.PointPred^2)
+avg.var.MargEffect <- colMeans (SE.MargEffect^2)
+full.SE.PointPred  <- sqrt (avg.var.PointPred + var.avg.PointPred*(1.2))
+full.SE.MargEffect <- sqrt (avg.var.MargEffect + var.avg.MargEffect*(1.2))
+
+pdf (paste0(graphicsPath, "eplEffectnoPRT.pdf"), h=7, w=10)
+par (mar=c(3,4,0.5,0.5), las=0)
+plot (avg.PointPred~eplPoints, type="n", bty="n"
+      , xlab=""
+      , ylab=""
+      , ylim=c(-0.30,0.1), xlim=c(-2,3), cex.axis=0.8)
+mtext (side=1, line=2
+       , text="Employment protection laws")
+mtext (side=2, line=3
+       , text="Marginal effect of access to credit")
+mtext (side=2, line=2
+       , text="on redistributive preference")
+polygon( y=c(avg.MargEffect+1.96*full.SE.MargEffect, rev(avg.MargEffect-1.96*full.SE.MargEffect))
+         , x=c(eplSim, rev(eplSim))
+         , col="gray"
+         , border=NA)
+points (xy.coords(eplSim, avg.MargEffect), type="l")
+points (xy.coords(eplPoints, avg.PointPred), pch=19)
+segments (x0=eplPoints, x1=eplPoints
+          , y0=avg.PointPred + 1.96*full.SE.PointPred
+          , y1=avg.PointPred - 1.96*full.SE.PointPred)
+abline (h=0, lty=2)
+dev.off ()
 
 
-# Change optimizer: doesn't work
-# lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000))
-
-# Rescale variables
-tmp$risk.std <- (tmp$risk-mean(tmp$risk, na.rm=T))/sd(tmp$risk, na.rm=T)
-
-fit.risk <- lmer(gincdif2 ~ brwmny.std + risk.std + brwmny.std:risk.std
-                     + male + agea + log.income.std
-                     + unemplindiv
-                     + eduyrs2 + mbtru2+ rlgdgr 
-  + socgdp + log.gdpc
-  + (1 + brwmny | cntry.yr),
-  weights = dweight, na.action="na.omit", data=tmp)
-
-summary(fit.risk)
-
+# fit.risk (model 5)
+fit.risk <- lapply(completeData,
+                         function(d) lmer(gincdif2 ~ brwmny + risk + brwmny:risk
+                                          + male + agea + log.income
+                                          + unemplindiv
+                                          + eduyrs2 + mbtru2+ rlgdgr
+                                          + socgdp + log.gdpc
+                                          + (1 + brwmny  + risk + brwmny:risk | cntry.yr),
+                                          weights = dweight, data=d, REML=TRUE))
+print.merModList (fit.risk)
 # interplot (fit.risk, "brwmny", "risk")
 
-#### Graph fit.risk.macro ####
-# Find the omitted data
-omitted.obs <- as.numeric (attr (fit.risk@frame, "na.action"))
-# Every survey has at least one omitted variable. Nine surveys are
-# completely omitted. These are:
-noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
+#### Graph fit.risk ####
+# # Find the omitted data
+# omitted.obs <- as.numeric (attr (fit.risk@frame, "na.action"))
+# # Every survey has at least one omitted variable. Nine surveys are
+# # completely omitted. These are:
+# noData <- unique(tmp$cntry.yr)[!is.element(unique(tmp$cntry.yr), unique (tmp[-omitted.obs,]$cntry.yr))]
 
 #### Graph fit.risk ####
-riskSims <- seq (-3, 3, length=50)
-interceptPred <- ranef (fit.risk)$cntry.yr[,grep("^brwmny.std$", names (fixef (fit.risk)))] +
-   fixef(fit.risk)[grep("^brwmny.std$", names (fixef (fit.risk)))]
-slopePred <- ranef (fit.risk)$cntry.yr[,grep("^brwmny.std:risk.std$", names (ranef (fit.risk)$cntry.yr))] + fixef(fit.risk)[grep("^brwmny.std:risk.std$", names (fixef (fit.risk)))]
-which.brwmny <- grep("^brwmny.std$", names (fixef(fit.risk)))
-which.interac <- grep("^brwmny.std:risk.std$", names (fixef(fit.risk)))
-margEffect <- fixef (fit.risk)[which.brwmny] + fixef (fit.risk)[which.interac]*riskSims
-se.margEffect <- sqrt(vcov(fit.risk)[which.brwmny,which.brwmny] +
-                         vcov(fit.risk)[which.interac,which.interac]*(riskSims^2) +
-                         vcov(fit.risk)[which.brwmny,which.interac]*2*riskSims)
+riskSims <- seq (-1.5,2.5, length=50)
+InterceptPred <- SlopePred <- MargEffect <- SE.MargEffect <- c()
+for (i in 1:5){
+   interceptPred <- ranef (fit.risk[[i]])$cntry.yr[,grep("^brwmny$", names (fixef (fit.risk[[i]])))] +
+      fixef(fit.risk[[i]])[grep("^brwmny$", names (fixef (fit.risk[[i]])))]
+   slopePred <- ranef (fit.risk[[i]])$cntry.yr[,grep("^brwmny:risk$", names (ranef (fit.risk[[i]])$cntry.yr))] +
+      fixef(fit.risk[[i]])[grep("^brwmny:risk$", names (fixef (fit.risk[[i]])))]
+   which.brwmny <- grep("^brwmny$", names (fixef(fit.risk[[i]])))
+   which.interac <- grep("^brwmny:risk$", names (fixef(fit.risk[[i]])))
+   margEffect <- fixef (fit.risk[[i]])[which.brwmny] + fixef (fit.risk[[i]])[which.interac]*riskSims
+   se.margEffect <- sqrt(vcov(fit.risk[[i]])[which.brwmny,which.brwmny] +
+                         vcov(fit.risk[[i]])[which.interac,which.interac]*(riskSims^2) +
+                         vcov(fit.risk[[i]])[which.brwmny,which.interac]*2*riskSims)
 
-calculateImpact <- fixef (fit.risk)[which.brwmny] + fixef (fit.risk)[which.interac]*quantile(tmp$risk.std, prob=0.75) -
-   fixef (fit.risk)[which.brwmny] + fixef (fit.risk)[which.interac]*quantile(tmp$risk.std, prob=0.25)
-calculateImpact/0.044 # denominator is standard deviation of cross-survey random effects for credit
+   InterceptPred <- rbind (InterceptPred, interceptPred)
+   SlopePred <- rbind (SlopePred, slopePred)
+   MargEffect <- rbind (MargEffect, margEffect)
+   SE.MargEffect <- rbind (SE.MargEffect, se.margEffect)
+}
 
-# pdf (paste0(graphicsPath, "creditEffectVrisk.pdf"), h=7, w=10)
+avg.InterceptPred  <- colMeans (InterceptPred)
+avg.SlopePred  <- colMeans (SlopePred)
+avg.MargEffect <- colMeans (MargEffect)
+var.avg.MargEffect <- apply (MargEffect, 2, function (x) { sum ((x-mean(x))^2)/4 }) # variance of mean effect
+avg.var.MargEffect <- colMeans (SE.MargEffect^2)  # mean variance
+full.SE.MargEffect <- sqrt (avg.var.MargEffect + var.avg.MargEffect*(1.2))
+
+## Calculate impact of risk, as a share of standard deviation of cross-survey random effects for brwmny
+tmp <- c()
+for (i in 1:5){
+   calculateImpact <- fixef (fit.risk[[i]])[which.brwmny] + fixef (fit.risk[[i]])[which.interac]*quantile(completeData[[i]]$risk, prob=0.75, na.rm=T) -
+      fixef (fit.risk[[i]])[which.brwmny] + fixef (fit.risk[[i]])[which.interac]*quantile(completeData[[i]]$risk, prob=0.25, na.rm=T)
+   print (calculateImpact/0.053) # denominator is standard deviation of cross-survey random effects for credit
+   tmp <- c(tmp, calculateImpact/0.053)
+}
+print (mean (tmp))
+
+
+pdf (paste0(graphicsPath, "creditEffectVrisk.pdf"), h=7, w=10)
 par (mar=c(3,4,0.5,0.5), las=0)
-plot (margEffect~riskSims, bty="n", type="n"
+plot (avg.MargEffect~riskSims, bty="n", type="n"
       , xlab=""
       , ylab="", pch=19, axes=F
-      , ylim=c(-0.3,0.1), xlim=c(-2,2), cex.axis=0.8)
+      , ylim=c(-0.3,0.1), xlim=c(-1,2), cex.axis=0.8)
 for (i in 1:length(interceptPred)){
-   abline (a=interceptPred[i], b=slopePred[i], col="lightgray")
+   abline (a=avg.InterceptPred[i], b=avg.SlopePred[i], col="lightgray")
 }
-polygon( y=c(margEffect+1.96*se.margEffect, rev(margEffect-1.96*se.margEffect))
+polygon( y=c(avg.MargEffect+1.96*full.SE.MargEffect, rev(avg.MargEffect-1.96*full.SE.MargEffect))
          , x=c(riskSims, rev(riskSims))
          , col="darkgray"
          , border=NA)
-points (xy.coords(riskSims, margEffect), type="l")
+points (xy.coords(riskSims, avg.MargEffect), type="l")
 axis (2)
 axis (1)
 mtext (side=1, line=2
@@ -895,118 +1313,127 @@ mtext (side=2, line=3
 mtext (side=2, line=2
        , text="on redistributive preference")
 abline (h=0, lty=2)
-# dev.off ()
+dev.off ()
 
 
 # Final interaction 
-fit.risk.rich <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
-                 + male + agea + unemplindiv 
-                 + eduyrs2 + mbtru2 + rlgdgr 
-                 + socgdp + log.gdpc
-                 + (1 + brwmny | cntry.yr),
-                 weights = dweight, data=tmp, subset=incomeQNT==4 | incomeQNT==5)
-summary(fit.risk.rich)
-
-
-fit.risk.poor <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
-                      + male + agea + unemplindiv 
-                      + eduyrs2 + mbtru2 + rlgdgr 
-                      + socgdp + log(gdpc)
-                      + (1 + brwmny  | cntry.yr),
-                      weights = dweight, data=tmp, subset=incomeQNT==1 | incomeQNT==2)
-summary(fit.risk.poor)
+# fit.risk.rich <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
+#                  + male + agea + unemplindiv 
+#                  + eduyrs2 + mbtru2 + rlgdgr 
+#                  + socgdp + log.gdpc
+#                  + (1 + brwmny | cntry.yr),
+#                  weights = dweight, data=tmp, subset=incomeQNT==4 | incomeQNT==5)
+# summary(fit.risk.rich)
+# 
+# 
+# fit.risk.poor <- lmer(gincdif2 ~ brwmny + risk + brwmny:risk
+#                       + male + agea + unemplindiv 
+#                       + eduyrs2 + mbtru2 + rlgdgr 
+#                       + socgdp + log(gdpc)
+#                       + (1 + brwmny  | cntry.yr),
+#                       weights = dweight, data=tmp, subset=incomeQNT==1 | incomeQNT==2)
+# summary(fit.risk.poor)
 
 
 #### Gather models in a small numer of tables ####
 
-
+# Use stargazer for models for each Multiply-imputed dataset
 stargazer (fit.baseline, fit.gini, fit.risk)
 stargazer (fit.income, fit.incomeTR, fit.incomeQNT, fit.risk.rich, fit.risk.poor)
 
 # Dichotomous risk variable
-tmp$dich.risk <- as.factor (ifelse (tmp$risk<0, 0, 1))
-with (tmp, table(brwmny, incomeQNT, dich.risk))
-
-fit.risk.full <- lmer(gincdif2 ~ brwmny*dich.risk*incomeQNT
-                      + male + agea + unemplindiv 
-                      + eduyrs2 + mbtru2 + rlgdgr 
-                      + socgdp + log.gdpc
-                      + (1 | cntry.yr),
-                 weights = dweight, data=tmp)
-summary(fit.risk.full)
-
-sims <- rmvnorm (100, mean=fixef(fit.risk.full)
-                 , sigma=as.matrix(vcov(fit.risk.full)))
-
-x.male <- max (tmp$male, na.rm=T)
-x.agea <- median (rescale.var(tmp$agea), na.rm=T)
-x.unemplindiv <- max (tmp$unemplindiv, na.rm=T)
-x.eduyrs2 <- median (rescale.var(tmp$eduyrs2))
-x.mbtru2  <- max (tmp$mbtru2, na.rm=T)
-x.rlgdgr  <- median (rescale.var(tmp$rlgdgr), na.rm=T)
-x.socgdp  <- mean (rescale.var(tmp$socgdp), na.rm=T)
-x.loggdp  <- mean (log(tmp$gdpc))
-constant <- c(x.male, x.agea, x.unemplindiv, x.eduyrs2, x.mbtru2
-              , x.rlgdgr, x.socgdp, x.loggdp)
-
-brwmny <- c(1,5)
-risk   <- c(0,1)
-income.1 <- c(1,0,0,0,0)
-income.2 <- c(0,1,0,0,0)
-income.4 <- c(0,0,0,1,0)
-income.5 <- c(0,0,0,0,1)
-
-hat.y <- array (NA, dim=c(2,2,5))
-for (i in 1:2){
-   for (j in 1:2){
-      for (k in 1:5){
-         obs.values <- c(1, brwmny[i], risk[j], income.1[k], income.2[k]
-                         , income.4[k], income.5[k]
-                         , constant
-                         , brwmny[i]*risk[j], brwmny[i]*income.1[k]
-                         , brwmny[i]*income.2[k], brwmny[i]*income.4[k]
-                         , brwmny[i]*income.5[k], risk[j]*income.1[k]
-                         , risk[j]*income.2[k], risk[j]*income.4[k]
-                         , risk[j]*income.5[k], brwmny[i]*risk[j]*income.1[k]
-                         , brwmny[i]*risk[j]*income.2[k]
-                         , brwmny[i]*risk[j]*income.4[k]
-                         , brwmny[i]*risk[j]*income.5[k])
-         hat.y[i,j,k] <-  mean (sims %*% obs.values)
-      }
-   }
-}
-round (hat.y,2)
+# tmp$dich.risk <- as.factor (ifelse (tmp$risk<0, 0, 1))
+# with (tmp, table(brwmny, incomeQNT, dich.risk))
+# 
+# fit.risk.full <- lmer(gincdif2 ~ brwmny*dich.risk*incomeQNT
+#                       + male + agea + unemplindiv 
+#                       + eduyrs2 + mbtru2 + rlgdgr 
+#                       + socgdp + log.gdpc
+#                       + (1 | cntry.yr),
+#                  weights = dweight, data=tmp)
+# summary(fit.risk.full)
+# 
+# sims <- rmvnorm (100, mean=fixef(fit.risk.full)
+#                  , sigma=as.matrix(vcov(fit.risk.full)))
+# 
+# x.male <- max (tmp$male, na.rm=T)
+# x.agea <- median (rescale.var(tmp$agea), na.rm=T)
+# x.unemplindiv <- max (tmp$unemplindiv, na.rm=T)
+# x.eduyrs2 <- median (rescale.var(tmp$eduyrs2))
+# x.mbtru2  <- max (tmp$mbtru2, na.rm=T)
+# x.rlgdgr  <- median (rescale.var(tmp$rlgdgr), na.rm=T)
+# x.socgdp  <- mean (rescale.var(tmp$socgdp), na.rm=T)
+# x.loggdp  <- mean (log(tmp$gdpc))
+# constant <- c(x.male, x.agea, x.unemplindiv, x.eduyrs2, x.mbtru2
+#               , x.rlgdgr, x.socgdp, x.loggdp)
+# 
+# brwmny <- c(1,5)
+# risk   <- c(0,1)
+# income.1 <- c(1,0,0,0,0)
+# income.2 <- c(0,1,0,0,0)
+# income.4 <- c(0,0,0,1,0)
+# income.5 <- c(0,0,0,0,1)
+# 
+# hat.y <- array (NA, dim=c(2,2,5))
+# for (i in 1:2){
+#    for (j in 1:2){
+#       for (k in 1:5){
+#          obs.values <- c(1, brwmny[i], risk[j], income.1[k], income.2[k]
+#                          , income.4[k], income.5[k]
+#                          , constant
+#                          , brwmny[i]*risk[j], brwmny[i]*income.1[k]
+#                          , brwmny[i]*income.2[k], brwmny[i]*income.4[k]
+#                          , brwmny[i]*income.5[k], risk[j]*income.1[k]
+#                          , risk[j]*income.2[k], risk[j]*income.4[k]
+#                          , risk[j]*income.5[k], brwmny[i]*risk[j]*income.1[k]
+#                          , brwmny[i]*risk[j]*income.2[k]
+#                          , brwmny[i]*risk[j]*income.4[k]
+#                          , brwmny[i]*risk[j]*income.5[k])
+#          hat.y[i,j,k] <-  mean (sims %*% obs.values)
+#       }
+#    }
+# }
+# round (hat.y,2)
 
 ###########################################################
 
 # ROBUSTNESS
 
-# 1) social network effects
-fit.socialorigin <- lmer(gincdif2 ~ brwmny.std + socialorigin
-  + log.income.std + male + agea + unemplindiv 
-  + eduyrs2 + mbtru2 + rlgdgr 
-  + socgdp + log.gdpc
-  + (1 + brwmny | cntry.yr),
-  weights = dweight, data=tmp)
-summary(fit.socialorigin)
+# 1) social network effects (model 6)
+fit.socialorigin <- lapply(completeData,
+                   function(d) lmer(gincdif2 ~ brwmny + socialorigin
+                                    + log.income + male + agea + unemplindiv 
+                                    + eduyrs2 + mbtru2 + rlgdgr 
+                                    + socgdp + log.gdpc
+                                    + (1 + brwmny | cntry.yr),
+                                    weights = dweight, data=d))
+print.merModList (fit.socialorigin)
 
-# 2) wealth effects
-fit.wealth <- lmer(gincdif2 ~ brwmny + h.owner
-  + log.income + male + agea + unemplindiv 
-  + eduyrs2 + mbtru2 + rlgdgr 
-  + socgdp + log.gdpc
-  + (1 + brwmny | cntry.yr),
-  weights = dweight, data=tmp, subset = essround == 2)
-summary(fit.wealth)
+# 2) wealth effects (model 7)
+fit.wealth <- lapply(completeData,
+                           function(d) lmer(gincdif2 ~ brwmny + h.owner
+                                            + log.income + male + agea + unemplindiv 
+                                            + eduyrs2 + mbtru2 + rlgdgr 
+                                            + socgdp + log.gdpc
+                                            + (1 + brwmny | cntry.yr),
+                                            weights = dweight, data=d))
+print.merModList (fit.wealth)
 
-# 3) social network & wealth effects
-fit.robustFull <- lmer(gincdif2 ~ brwmny + h.owner + socialorigin
-  + log.income + male + agea + unemplindiv 
-  + eduyrs2 + mbtru2 + rlgdgr 
-  + socgdp + log.gdpc
-  + (1 + brwmny + h.owner + socialorigin | cntry.yr),
-  weights = dweight, data=tmp, subset = essround == 2)
-summary(fit.robustFull)
+
+# 3) social network & wealth effects (model 8)
+fit.robustFull <- lapply(completeData,
+                     function(d) lmer(gincdif2 ~ brwmny + h.owner + socialorigin
+                                      + log.income + male + agea + unemplindiv 
+                                      + eduyrs2 + mbtru2 + rlgdgr 
+                                      + socgdp + log.gdpc
+                                      + (1 + brwmny + h.owner + socialorigin | cntry.yr),
+                                      weights = dweight, data=d))
+print.merModList (fit.robustFull)
+
+
+
+
+
 
 # export findings
 stargazer(fit.socialorigin, fit.wealth, fit.robustFull)
@@ -1044,46 +1471,46 @@ summary(fit.selfMrkt)
 #### RUN REGRESSIONS BY "CNTRY.YR" and STORE ESTIMATES ####
 ###########################################################
 
-# generate variable indicating missing income information
-tmp <- tmp %>%
-  group_by(cntry.yr) %>%
-  mutate(n_unique = n_distinct(incomeQNT))
-tmp$incomeNA <- ifelse(tmp$n_unique > 2, 0,1)
-
-# with "incomeQNT"
-incomeQNT_results <- dlply(tmp[tmp$incomeNA == 0,], "cntry.yr", function(df)
-  lm(gincdif2 ~ brwmny + incomeQNT + brwmny : incomeQNT
-    + male + agea + unemplindiv 
-    + eduyrs2 + mbtru2 + rlgdgr 
-    + socgdp + log.gdpc, data = df) 
-)
-
-# with "incomeTER"
-incomeTER_results <- dlply(tmp[tmp$incomeNA == 0,], "cntry.yr", function(df)
-  lm(gincdif2 ~ brwmny + incomeTER + brwmny : incomeTER
-    + male + agea + unemplindiv 
-    + eduyrs2 + mbtru2 + rlgdgr 
-    + socgdp + log.gdpc, data = df) 
-)
-
-# with "log.income"
-incomeLog_results <- dlply(tmp[tmp$incomeNA == 0,], "cntry.yr", function(df)
-  lm(gincdif2 ~ brwmny + log.income
-  + brwmny:log.income
-  + male + agea + unemplindiv 
-  + eduyrs2 + mbtru2 + rlgdgr 
-  + socgdp + log.gdpc, data = df)
-  )
-
-# collect all results in single dataframe
-
-incomeQNT <- lapply(incomeQNT_results, function(x) coef(x)[grep ("brwmny", names(coef(x)))])
-incomeLog <- lapply(incomeLog_results, function(x) coef(x)[grep ("brwmny", names(coef(x)))])
-incomeTER <- lapply(incomeTER_results, function(x) coef(x)[grep ("brwmny", names(coef(x)))])
-
-incomeQNT.vcov <- lapply(incomeQNT_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
-incomeLog.vcov <- lapply(incomeLOG_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
-incomeTER.vcov <- lapply(incomeTER_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
+# # generate variable indicating missing income information
+# tmp <- tmp %>%
+#   group_by(cntry.yr) %>%
+#   mutate(n_unique = n_distinct(incomeQNT))
+# tmp$incomeNA <- ifelse(tmp$n_unique > 2, 0,1)
+# 
+# # with "incomeQNT"
+# incomeQNT_results <- dlply(tmp[tmp$incomeNA == 0,], "cntry.yr", function(df)
+#   lm(gincdif2 ~ brwmny + incomeQNT + brwmny : incomeQNT
+#     + male + agea + unemplindiv 
+#     + eduyrs2 + mbtru2 + rlgdgr 
+#     + socgdp + log.gdpc, data = df) 
+# )
+# 
+# # with "incomeTER"
+# incomeTER_results <- dlply(tmp[tmp$incomeNA == 0,], "cntry.yr", function(df)
+#   lm(gincdif2 ~ brwmny + incomeTER + brwmny : incomeTER
+#     + male + agea + unemplindiv 
+#     + eduyrs2 + mbtru2 + rlgdgr 
+#     + socgdp + log.gdpc, data = df) 
+# )
+# 
+# # with "log.income"
+# incomeLog_results <- dlply(tmp[tmp$incomeNA == 0,], "cntry.yr", function(df)
+#   lm(gincdif2 ~ brwmny + log.income
+#   + brwmny:log.income
+#   + male + agea + unemplindiv 
+#   + eduyrs2 + mbtru2 + rlgdgr 
+#   + socgdp + log.gdpc, data = df)
+#   )
+# 
+# # collect all results in single dataframe
+# 
+# incomeQNT <- lapply(incomeQNT_results, function(x) coef(x)[grep ("brwmny", names(coef(x)))])
+# incomeLog <- lapply(incomeLog_results, function(x) coef(x)[grep ("brwmny", names(coef(x)))])
+# incomeTER <- lapply(incomeTER_results, function(x) coef(x)[grep ("brwmny", names(coef(x)))])
+# 
+# incomeQNT.vcov <- lapply(incomeQNT_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
+# incomeLog.vcov <- lapply(incomeLOG_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
+# incomeTER.vcov <- lapply(incomeTER_results, function(x) vcov(x)[grep ("brwmny", colnames(vcov(x))), grep ("brwmny", colnames(vcov(x)))])
 
 
 
