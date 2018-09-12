@@ -86,11 +86,15 @@ ess$cntry.yr <- paste0(ess$cou, ess$year)
 
 ess$country.year.isco <- paste0 (ess$cou, ess$year, ess$iscoco2)
 
-# generate variables and predictions for Rueda's 'expected income'
+# generate variables for 'expected income'
 ess$edu.level <- ifelse(ess$eisced == 1 | ess$eisced == 2, 0  # eisced is harmonized education level var
   , ifelse(ess$eisced == 3, 1
     , ifelse(ess$eisced == 5 | ess$eisced == 4, 3
       , ifelse(ess$eisced == 6 | ess$eisced == 7, 4, NA))))
+
+ess$edu.level2 <- ifelse(ess$eduyrs2 < 9, 0  # simplified version of classification
+    , ifelse(ess$eduyrs2 >= 9 | ess$eduyrs2 <= 13, 1
+      , ifelse(ess$eduyrs2 > 13, 2, NA)))
 
 ess$eduyrs2 <- ifelse(ess$eduyrs2 > ess$agea, NA, ess$eduyrs2) # drops 128 values that are not realistic
 ess$wk.exp <- ess$agea - ess$eduyrs2
@@ -98,6 +102,7 @@ summary(ess[ess$agea <= 65 & ess$agea >= 25,]$wk.exp) # surprising to see that w
 
 ess$yrs.retire <- 65 - ess$agea
 summary(ess[ess$agea <= 65 & ess$agea >= 25,]$yrs.retire)  # for the model, we need to subset to age >= 25 & age <= 65
+
 
 # Model to build latent risk variables 
 ess$complete.iscoco2 <- ifelse (!is.na(ess$iscoco2), 1, 0)
@@ -141,7 +146,7 @@ include.vars <- c("gincdif2bin","gincdif2","brwmny","male"
                   ,"agea","unemplindiv"
                   ,"socgdp","gdpc","gininet","epl","unempl"
                   ,"h.owner","self_marketability","self_skillspec","mainsample"
-                  ,"eduyrs2","mbtru2","rlgdgr" # , "edu.level", "yrs.retire", "wk.exp" ## how do include?
+                  ,"eduyrs2","mbtru2","rlgdgr" , "edu.level","edu.level2", "yrs.retire", "wk.exp"
                   ,"iscoco","socialorigin","essround"
                   ,"income","cntry.yr","dweight"
                   ,"cou","year")
@@ -154,7 +159,6 @@ tempData$iscoco <- ifelse (tempData$iscoco>10000, NA, tempData$iscoco)
 ## Eliminate social origin information for France 2002, 2004, and Ireland 2002
 ## (question not asked, yet coded as "high" by SL)
 tempData$socialorigin <- ifelse ( is.element(tempData$cntry.yr, c("FRA2002","FRA2004","IRL2002")), NA, tempData$socialorigin )
-
 
 
 #### Multiple imputation using Amelia ####
@@ -170,7 +174,8 @@ for (i in 1:length(unique(tempData$cntry.yr))) {
                               , idvars=c("cntry.yr","essround","socgdp","income"
                                          ,"gdpc","gininet","epl","unempl","socialorigin"
                                          ,"iscoco","h.owner","self_skillspec","dweight"
-                                         ,"self_marketability","mainsample","cou","year")
+                                         ,"self_marketability","mainsample","cou","year"
+                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp")
                               #, cs="cou", ts="year"
                               , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
                               , ords=c("gincdif2","brwmny","rlgdgr"))
@@ -179,7 +184,8 @@ for (i in 1:length(unique(tempData$cntry.yr))) {
                               , idvars=c("cntry.yr","essround","socgdp","income"
                                          ,"gdpc","gininet","epl","unempl"
                                          ,"iscoco","h.owner","self_skillspec","dweight"
-                                         ,"self_marketability","mainsample","cou","year")
+                                         ,"self_marketability","mainsample","cou","year"
+                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp")
                               #, cs="cou", ts="year"
                               , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
                               , ords=c("gincdif2","brwmny","rlgdgr","socialorigin"))
@@ -188,7 +194,8 @@ for (i in 1:length(unique(tempData$cntry.yr))) {
                               , idvars=c("cntry.yr","essround","socgdp","socialorigin"
                                          ,"gdpc","gininet","epl","unempl"
                                          ,"iscoco","h.owner","self_skillspec","dweight"
-                                         ,"self_marketability","mainsample","cou","year")
+                                         ,"self_marketability","mainsample","cou","year"
+                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp")
                               #, cs="cou", ts="year"
                               , log=c("income")
                               , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
@@ -198,7 +205,8 @@ for (i in 1:length(unique(tempData$cntry.yr))) {
                               , idvars=c("cntry.yr","essround","socgdp"
                                          ,"gdpc","gininet","epl","unempl"
                                          ,"iscoco","h.owner","self_skillspec","dweight"
-                                         ,"self_marketability","mainsample","cou","year")
+                                         ,"self_marketability","mainsample","cou","year"
+                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp")
                               #, cs="cou", ts="year"
                               , log=c("income")
                               , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
@@ -1482,6 +1490,32 @@ summary(fit.selfMrkt)
 
 # 6) expected income
 
+# required variables are constructed at beginning of script
+
+# In each survey, we estimate the following model
+completeData2 <- lapply(completeData,
+  function(d) ddply(d, "cntry.yr", mutate,
+    fitValue = fitted.values(lm(log.income ~ as.factor(edu.level2)
+      + as.factor(edu.level2):wk.exp
+      + as.factor(edu.level2):I(wk.exp^2) - 1, na.action = "na.exclude")), ## note: this only works if I drop observations with missing observations (I thought they are imputed)
+    expected.income = fitValue * yrs.retire)) ## here we construct the expected income var
+
+fit.expectInc <- lapply(completeData2,
+  function(d) lmer(gincdif2 ~ brwmny
+    + expected.income + male + agea + unemplindiv 
+    + eduyrs2 + mbtru2 + rlgdgr 
+    + socgdp + log.gdpc
+    + (1 + brwmny | cntry.yr),
+    weights = dweight, data=d, subset = agea >= 25 & agea <= 65)) ## note: only working population
+print.merModList(fit.expectInc)
+
+fit.expectInc2 <- lapply(completeData2,
+  function(d) lmer(gincdif2 ~ brwmny
+    * expected.income + male + agea + unemplindiv 
+    + eduyrs2 + mbtru2 + rlgdgr 
+    + socgdp + log.gdpc
+    + (1 + brwmny * expected.income | cntry.yr),
+    weights = dweight, data=d, subset = agea >= 25 & agea <= 65))
 
 ###########################################################
 #### RUN REGRESSIONS BY "CNTRY.YR" and STORE ESTIMATES ####
