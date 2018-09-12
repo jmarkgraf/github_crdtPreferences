@@ -86,6 +86,19 @@ ess$cntry.yr <- paste0(ess$cou, ess$year)
 
 ess$country.year.isco <- paste0 (ess$cou, ess$year, ess$iscoco2)
 
+# generate variables and predictions for Rueda's 'expected income'
+ess$edu.level <- ifelse(ess$eisced == 1 | ess$eisced == 2, 0  # eisced is harmonized education level var
+  , ifelse(ess$eisced == 3, 1
+    , ifelse(ess$eisced == 5 | ess$eisced == 4, 3
+      , ifelse(ess$eisced == 6 | ess$eisced == 7, 4, NA))))
+
+ess$eduyrs2 <- ifelse(ess$eduyrs2 > ess$agea, NA, ess$eduyrs2) # drops 128 values that are not realistic
+ess$wk.exp <- ess$agea - ess$eduyrs2
+summary(ess[ess$agea <= 65 & ess$agea >= 25,]$wk.exp) # surprising to see that we end up with individuals that have 65 years of work experience, i.e. 0 years of education...
+
+ess$yrs.retire <- 65 - ess$agea
+summary(ess[ess$agea <= 65 & ess$agea >= 25,]$yrs.retire)  # for the model, we need to subset to age >= 25 & age <= 65
+
 # Model to build latent risk variables 
 ess$complete.iscoco2 <- ifelse (!is.na(ess$iscoco2), 1, 0)
 
@@ -128,7 +141,7 @@ include.vars <- c("gincdif2bin","gincdif2","brwmny","male"
                   ,"agea","unemplindiv"
                   ,"socgdp","gdpc","gininet","epl","unempl"
                   ,"h.owner","self_marketability","self_skillspec","mainsample"
-                  ,"eduyrs2","mbtru2","rlgdgr"
+                  ,"eduyrs2","mbtru2","rlgdgr" # , "edu.level", "yrs.retire", "wk.exp" ## how do include?
                   ,"iscoco","socialorigin","essround"
                   ,"income","cntry.yr","dweight"
                   ,"cou","year")
@@ -1466,6 +1479,9 @@ summary(fit.selfMrkt)
 ## model does not converge
 ## there seems to be no effect of **perceived** marketability on the effect of credit
 ## main effect as expected & significant; interaction: direction not as expected, not significant
+
+# 6) expected income
+
 
 ###########################################################
 #### RUN REGRESSIONS BY "CNTRY.YR" and STORE ESTIMATES ####
