@@ -739,7 +739,77 @@ for (j in 1:5){
 ## These are saved in CreditPreferences/Code/ameliaLmer.R
 source ("~/Dropbox/CreditPreferences/Code/ameliaLmer.R")
 
-###### CAN WE ADD ROBUST STANDARD ERRORS AT SURVEY LEVEL
+#### ordered logit models, non-nested, one per survey ####
+
+completeData[[1]]$factor.gincdif2 <- as.ordered (completeData[[1]]$gincdif2)
+completeData[[2]]$factor.gincdif2 <- as.ordered (completeData[[2]]$gincdif2)
+completeData[[3]]$factor.gincdif2 <- as.ordered (completeData[[3]]$gincdif2)
+completeData[[4]]$factor.gincdif2 <- as.ordered (completeData[[4]]$gincdif2)
+completeData[[5]]$factor.gincdif2 <- as.ordered (completeData[[5]]$gincdif2)
+levels (completeData[[1]]$factor.gincdif2) <- c(1,2,3,4,5)
+levels (completeData[[2]]$factor.gincdif2) <- c(1,2,3,4,5)
+levels (completeData[[3]]$factor.gincdif2) <- c(1,2,3,4,5)
+levels (completeData[[4]]$factor.gincdif2) <- c(1,2,3,4,5)
+levels (completeData[[5]]$factor.gincdif2) <- c(1,2,3,4,5)
+
+brwmny.coefs <- brwmny.se <- c()
+for (i in 1:length(unique (completeData[[1]]$cntry.yr))){
+   pais <- unique (completeData[[1]]$cntry.yr)[i]
+   tempData <- list (completeData[[1]][completeData[[1]]$cntry.yr==pais,]
+                     , completeData[[2]][completeData[[2]]$cntry.yr==pais,]
+                     , completeData[[3]][completeData[[3]]$cntry.yr==pais,]
+                     , completeData[[4]][completeData[[4]]$cntry.yr==pais,]
+                     , completeData[[5]][completeData[[5]]$cntry.yr==pais,])
+   try (polr.model <- lapply (tempData,
+                         function (d) polr (factor.gincdif2 ~ brwmny
+                                            + log.income + male + agea + unemplindiv 
+                                            + eduyrs2 + mbtru2 + rlgdgr 
+                                            , weights=dweight, data=d, Hess=T)))
+   
+   relevant.coef  <- mean (c(polr.model[[1]]$coefficients[1]
+                               , polr.model[[2]]$coefficients[1]
+                               , polr.model[[3]]$coefficients[1]
+                               , polr.model[[4]]$coefficients[1]
+                               , polr.model[[5]]$coefficients[1]))
+   var.coef <- var( c(polr.model[[1]]$coefficients[1]
+                     , polr.model[[2]]$coefficients[1]
+                     , polr.model[[3]]$coefficients[1]
+                     , polr.model[[4]]$coefficients[1]
+                     , polr.model[[5]]$coefficients[1]))
+   avg.var.Intercept <- mean (c(vcov (polr.model[[1]])[1,1]
+                                , vcov (polr.model[[2]])[1,1]
+                                , vcov (polr.model[[3]])[1,1]
+                                , vcov (polr.model[[4]])[1,1]
+                                , vcov (polr.model[[5]])[1,1]))  # mean variance
+   full.SE.Intercept <- sqrt (avg.var.Intercept + var.coef*(1.2))
+   
+   brwmny.coefs <- c(brwmny.coefs, relevant.coef)
+   brwmny.se    <- c(brwmny.se, full.SE.Intercept)
+}
+
+increasing.order <- order (brwmny.coefs)
+
+pdf(paste0(graphicsPath, "randomCoefBaselinePOLR.pdf"), h=7, w=11)
+par (mar=c(3,4,0,0))
+plot (c(1,length(brwmny.coefs))
+      , c(min(brwmny.coefs-2*brwmny.se),max(brwmny.coefs+2*brwmny.se))
+      , type="n"
+      , xlab=""
+      , ylab="", axes=F)
+segments (x0=1:length(brwmny.coefs), x1=1:length(brwmny.coefs)
+          , y0=brwmny.coefs[increasing.order]-1.96*brwmny.se[increasing.order]
+          , y1=brwmny.coefs[increasing.order]+1.96*brwmny.se[increasing.order])
+points (xy.coords(1:length(brwmny.coefs), brwmny.coefs[increasing.order]), pch=19)
+axis (2)
+mtext (side=2, line=3, text="Marginal effect of access to credit")
+mtext (side=2, line=2, text="on redistributive preference (non-nested ordered logit models)")
+# mtext (tolower(unique(fit.baseline[[1]]@frame$cntry.yr))[increasing.order], side=1, line=0, las=2, at=1:length(ranef.brwmny), cex=0.8)
+mtext (side=1, line=1, text="Country-year units (ordered by size of marginal effect)")
+abline (h=0, lty=3)
+dev.off()
+
+
+
 
 # Baseline model (model 1)
 fit.baseline <- lapply(completeData,
