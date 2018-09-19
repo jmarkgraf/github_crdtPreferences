@@ -45,7 +45,7 @@ set_valid_wd(possibles)
 graphicsPath <- c("~/Dropbox/CreditPreferences/Data/plotsGraphs/")
 
 # load dataset
-ess <- read.dta13("Data/ESSdata/finalESS_ThewissenRueda.dta",  # to be refined by each of us.
+ess <- read.dta("Data/ESSdata/finalESS_ThewissenRueda.dta",  # to be refined by each of us.
   convert.factors = F)
 ess.backup <- ess
 ess <- ess.backup
@@ -87,7 +87,8 @@ ess$cntry.yr <- paste0(ess$cou, ess$year)
 ess$country.year.isco <- paste0 (ess$cou, ess$year, ess$iscoco2)
 
 # generate variables for 'expected income'
-ess$edu.level <- ifelse(ess$eisced == 1 | ess$eisced == 2, 0  # eisced is harmonized education level var
+# I'm sure we need to add 0 here
+ess$edu.level <- ifelse(ess$eisced == 0 | ess$eisced==1 | ess$eisced == 2, 0  # eisced is harmonized education level var
   , ifelse(ess$eisced == 3, 1
     , ifelse(ess$eisced == 5 | ess$eisced == 4, 3
       , ifelse(ess$eisced == 6 | ess$eisced == 7, 4, NA))))
