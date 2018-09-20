@@ -104,6 +104,9 @@ summary(ess[ess$agea <= 65 & ess$agea >= 25,]$wk.exp) # surprising to see that w
 ess$yrs.retire <- 65 - ess$agea
 summary(ess[ess$agea <= 65 & ess$agea >= 25,]$yrs.retire)  # for the model, we need to subset to age >= 25 & age <= 65
 
+ess$wrk.age <- ifelse(ess$agea >= 25 & ess$agea <= 65 & !is.na(ess$agea), 1
+  , ifelse(is.na(ess$agea), NA, 0))
+
 
 # Model to build latent risk variables 
 ess$complete.iscoco2 <- ifelse (!is.na(ess$iscoco2), 1, 0)
@@ -147,7 +150,7 @@ include.vars <- c("gincdif2bin","gincdif2","brwmny","male"
                   ,"agea","unemplindiv"
                   ,"socgdp","gdpc","gininet","epl","unempl"
                   ,"h.owner","self_marketability","self_skillspec","mainsample"
-                  ,"eduyrs2","mbtru2","rlgdgr" , "edu.level","edu.level2", "yrs.retire", "wk.exp"
+                  ,"eduyrs2","mbtru2","rlgdgr" , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age"
                   ,"iscoco","socialorigin","essround"
                   ,"income","cntry.yr","dweight"
                   ,"cou","year")
@@ -176,7 +179,7 @@ for (i in 1:length(unique(tempData$cntry.yr))) {
                                          ,"gdpc","gininet","epl","unempl","socialorigin"
                                          ,"iscoco","h.owner","self_skillspec","dweight"
                                          ,"self_marketability","mainsample","cou","year"
-                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp")
+                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age")
                               #, cs="cou", ts="year"
                               , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
                               , ords=c("gincdif2","brwmny","rlgdgr"))
@@ -186,7 +189,7 @@ for (i in 1:length(unique(tempData$cntry.yr))) {
                                          ,"gdpc","gininet","epl","unempl"
                                          ,"iscoco","h.owner","self_skillspec","dweight"
                                          ,"self_marketability","mainsample","cou","year"
-                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp")
+                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age")
                               #, cs="cou", ts="year"
                               , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
                               , ords=c("gincdif2","brwmny","rlgdgr","socialorigin"))
@@ -196,7 +199,7 @@ for (i in 1:length(unique(tempData$cntry.yr))) {
                                          ,"gdpc","gininet","epl","unempl"
                                          ,"iscoco","h.owner","self_skillspec","dweight"
                                          ,"self_marketability","mainsample","cou","year"
-                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp")
+                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age")
                               #, cs="cou", ts="year"
                               , log=c("income")
                               , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
@@ -207,7 +210,7 @@ for (i in 1:length(unique(tempData$cntry.yr))) {
                                          ,"gdpc","gininet","epl","unempl"
                                          ,"iscoco","h.owner","self_skillspec","dweight"
                                          ,"self_marketability","mainsample","cou","year"
-                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp")
+                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age")
                               #, cs="cou", ts="year"
                               , log=c("income")
                               , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
@@ -1573,13 +1576,11 @@ completeData2 <- lapply(completeData,
 
 fit.expectInc <- lapply(completeData2,
   function(d) lmer(gincdif2 ~ brwmny
-    + expected.income + male + agea + unemplindiv 
+    + expected.income + log.income + male + agea + unemplindiv 
     + eduyrs2 + mbtru2 + rlgdgr 
     + socgdp + log.gdpc
     + (1 + brwmny | cntry.yr),
-    weights = dweight, data=d
-    # , subset = agea >= 25 & agea <= 65) ## note: only working population --THIS SEEMS TO BREAK THE CODE: are there surveys without observiations?
-  ))
+    weights = dweight, data=d, subset = wrk.age == 1)) # without subsetting, 'expected.income' has expected sign and is stat significant.
 print.merModList(fit.expectInc)
 
 fit.expectInc2 <- lapply(completeData2,
@@ -1588,9 +1589,7 @@ fit.expectInc2 <- lapply(completeData2,
     + eduyrs2 + mbtru2 + rlgdgr 
     + socgdp + log.gdpc
     + (1 + brwmny * expected.income | cntry.yr),
-    weights = dweight, data=d
-    # , subset = agea >= 25 & agea <= 65)
-  ))
+    weights = dweight, data=d, subset = wrk.age == 1))
 print.merModList(fit.expectInc2)
 
 ###########################################################
