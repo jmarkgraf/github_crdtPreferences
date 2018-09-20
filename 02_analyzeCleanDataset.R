@@ -1577,7 +1577,9 @@ fit.expectInc <- lapply(completeData2,
     + eduyrs2 + mbtru2 + rlgdgr 
     + socgdp + log.gdpc
     + (1 + brwmny | cntry.yr),
-    weights = dweight, data=d, subset = agea >= 25 & agea <= 65)) ## note: only working population
+    weights = dweight, data=d
+    # , subset = agea >= 25 & agea <= 65) ## note: only working population --THIS SEEMS TO BREAK THE CODE: are there surveys without observiations?
+  ))
 print.merModList(fit.expectInc)
 
 fit.expectInc2 <- lapply(completeData2,
@@ -1586,7 +1588,10 @@ fit.expectInc2 <- lapply(completeData2,
     + eduyrs2 + mbtru2 + rlgdgr 
     + socgdp + log.gdpc
     + (1 + brwmny * expected.income | cntry.yr),
-    weights = dweight, data=d, subset = agea >= 25 & agea <= 65))
+    weights = dweight, data=d
+    # , subset = agea >= 25 & agea <= 65)
+  ))
+print.merModList(fit.expectInc2)
 
 ###########################################################
 #### RUN REGRESSIONS BY "CNTRY.YR" and STORE ESTIMATES ####
