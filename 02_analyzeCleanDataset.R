@@ -168,64 +168,64 @@ tempData$socialorigin <- ifelse ( is.element(tempData$cntry.yr, c("FRA2002","FRA
 #### Multiple imputation using Amelia ####
 ## Running the next step takes a couple minutes
 ## Imputations are country-by-country to avoid extremely warped income imputed values
-imp1 <- imp2 <- imp3 <- imp4 <- imp5 <- c()
-for (i in 1:length(unique(tempData$cntry.yr))) {
-   pais <- unique (tempData$cntry.yr)[i]
-   tmp <- tempData[tempData$cntry.yr==pais,]
-   print (pais)
-   if (invalid (tmp$income) & invalid (tmp$socialorigin)) {
-      completeData <- amelia (tmp, m=5, p2s=0
-                              , idvars=c("cntry.yr","essround","socgdp","income"
-                                         ,"gdpc","gininet","epl","unempl","socialorigin"
-                                         ,"iscoco","h.owner","self_skillspec","dweight"
-                                         ,"self_marketability","mainsample","cou","year"
-                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age")
-                              #, cs="cou", ts="year"
-                              , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
-                              , ords=c("gincdif2","brwmny","rlgdgr"))
-   } else if (invalid (tmp$income) & !invalid(tmp$socialorigin)) {
-      completeData <- amelia (tmp, m=5, p2s=0
-                              , idvars=c("cntry.yr","essround","socgdp","income"
-                                         ,"gdpc","gininet","epl","unempl"
-                                         ,"iscoco","h.owner","self_skillspec","dweight"
-                                         ,"self_marketability","mainsample","cou","year"
-                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age")
-                              #, cs="cou", ts="year"
-                              , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
-                              , ords=c("gincdif2","brwmny","rlgdgr","socialorigin"))
-   } else if (!invalid (tmp$income) & invalid(tmp$socialorigin)) {
-      completeData <- amelia (tmp, m=5, p2s=0
-                              , idvars=c("cntry.yr","essround","socgdp","socialorigin"
-                                         ,"gdpc","gininet","epl","unempl"
-                                         ,"iscoco","h.owner","self_skillspec","dweight"
-                                         ,"self_marketability","mainsample","cou","year"
-                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age")
-                              #, cs="cou", ts="year"
-                              , log=c("income")
-                              , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
-                              , ords=c("gincdif2","brwmny","rlgdgr"))
-   } else {
-      completeData <- amelia (tmp, m=5, p2s=0
-                              , idvars=c("cntry.yr","essround","socgdp"
-                                         ,"gdpc","gininet","epl","unempl"
-                                         ,"iscoco","h.owner","self_skillspec","dweight"
-                                         ,"self_marketability","mainsample","cou","year"
-                                         , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age")
-                              #, cs="cou", ts="year"
-                              , log=c("income")
-                              , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
-                              , ords=c("gincdif2","brwmny","rlgdgr","socialorigin"))
-   }
-   imp1 <- rbind (imp1, completeData$imputations[[1]])
-   imp2 <- rbind (imp2, completeData$imputations[[2]])
-   imp3 <- rbind (imp3, completeData$imputations[[3]])
-   imp4 <- rbind (imp4, completeData$imputations[[4]])
-   imp5 <- rbind (imp5, completeData$imputations[[5]])
-}
-completeData <- list (imp1, imp2, imp3, imp4, imp5)
-
-save (completeData, file="~/Dropbox/CreditPreferences/Data/ESSdata/imputedData.Rdata")
-
+# imp1 <- imp2 <- imp3 <- imp4 <- imp5 <- c()
+# for (i in 1:length(unique(tempData$cntry.yr))) {
+#    pais <- unique (tempData$cntry.yr)[i]
+#    tmp <- tempData[tempData$cntry.yr==pais,]
+#    print (pais)
+#    if (invalid (tmp$income) & invalid (tmp$socialorigin)) {
+#       completeData <- amelia (tmp, m=5, p2s=0
+#                               , idvars=c("cntry.yr","essround","socgdp","income"
+#                                          ,"gdpc","gininet","epl","unempl","socialorigin"
+#                                          ,"iscoco","h.owner","self_skillspec","dweight"
+#                                          ,"self_marketability","mainsample","cou","year"
+#                                          , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age")
+#                               #, cs="cou", ts="year"
+#                               , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
+#                               , ords=c("gincdif2","brwmny","rlgdgr"))
+#    } else if (invalid (tmp$income) & !invalid(tmp$socialorigin)) {
+#       completeData <- amelia (tmp, m=5, p2s=0
+#                               , idvars=c("cntry.yr","essround","socgdp","income"
+#                                          ,"gdpc","gininet","epl","unempl"
+#                                          ,"iscoco","h.owner","self_skillspec","dweight"
+#                                          ,"self_marketability","mainsample","cou","year"
+#                                          , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age")
+#                               #, cs="cou", ts="year"
+#                               , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
+#                               , ords=c("gincdif2","brwmny","rlgdgr","socialorigin"))
+#    } else if (!invalid (tmp$income) & invalid(tmp$socialorigin)) {
+#       completeData <- amelia (tmp, m=5, p2s=0
+#                               , idvars=c("cntry.yr","essround","socgdp","socialorigin"
+#                                          ,"gdpc","gininet","epl","unempl"
+#                                          ,"iscoco","h.owner","self_skillspec","dweight"
+#                                          ,"self_marketability","mainsample","cou","year"
+#                                          , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age")
+#                               #, cs="cou", ts="year"
+#                               , log=c("income")
+#                               , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
+#                               , ords=c("gincdif2","brwmny","rlgdgr"))
+#    } else {
+#       completeData <- amelia (tmp, m=5, p2s=0
+#                               , idvars=c("cntry.yr","essround","socgdp"
+#                                          ,"gdpc","gininet","epl","unempl"
+#                                          ,"iscoco","h.owner","self_skillspec","dweight"
+#                                          ,"self_marketability","mainsample","cou","year"
+#                                          , "edu.level","edu.level2", "yrs.retire", "wk.exp", "wrk.age")
+#                               #, cs="cou", ts="year"
+#                               , log=c("income")
+#                               , noms=c("gincdif2bin","male","unemplindiv","mbtru2")
+#                               , ords=c("gincdif2","brwmny","rlgdgr","socialorigin"))
+#    }
+#    imp1 <- rbind (imp1, completeData$imputations[[1]])
+#    imp2 <- rbind (imp2, completeData$imputations[[2]])
+#    imp3 <- rbind (imp3, completeData$imputations[[3]])
+#    imp4 <- rbind (imp4, completeData$imputations[[4]])
+#    imp5 <- rbind (imp5, completeData$imputations[[5]])
+# }
+# completeData <- list (imp1, imp2, imp3, imp4, imp5)
+# 
+# save (completeData, file="~/Dropbox/CreditPreferences/Data/ESSdata/imputedData.Rdata")
+load (completeData, file="~/Dropbox/CreditPreferences/Data/ESSdata/imputedData.Rdata")
 
 for (i in 1:length(unique(tempData$cntry.yr))) {
    pais <- unique (tempData$cntry.yr)[i]
