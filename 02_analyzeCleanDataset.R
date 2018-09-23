@@ -225,7 +225,7 @@ tempData$socialorigin <- ifelse ( is.element(tempData$cntry.yr, c("FRA2002","FRA
 # completeData <- list (imp1, imp2, imp3, imp4, imp5)
 # 
 # save (completeData, file="~/Dropbox/CreditPreferences/Data/ESSdata/imputedData.Rdata")
-load (completeData, file="~/Dropbox/CreditPreferences/Data/ESSdata/imputedData.Rdata")
+load (file="~/Dropbox/CreditPreferences/Data/ESSdata/imputedData.Rdata")
 
 for (i in 1:length(unique(tempData$cntry.yr))) {
    pais <- unique (tempData$cntry.yr)[i]
