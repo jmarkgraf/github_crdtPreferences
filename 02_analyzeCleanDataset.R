@@ -224,6 +224,9 @@ for (i in 1:length(unique(tempData$cntry.yr))) {
 }
 completeData <- list (imp1, imp2, imp3, imp4, imp5)
 
+save (completeData, file="~/Dropbox/CreditPreferences/Data/ESSdata/imputedData.Rdata")
+
+
 for (i in 1:length(unique(tempData$cntry.yr))) {
    pais <- unique (tempData$cntry.yr)[i]
    tmp <- tempData[tempData$cntry.yr==pais,]
